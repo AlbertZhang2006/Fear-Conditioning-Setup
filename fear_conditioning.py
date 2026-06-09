@@ -1,18 +1,25 @@
+import os
 import tkinter as tk
-import pygame
 import serial
 import time
 import random
 import csv
+import winsound
 from datetime import datetime
 
 # ---------------------------
 # CONFIG
 # ---------------------------
-ARDUINO_PORT = "COM6"   # change this
+ARDUINO_PORT = "COM5"   # change this
 BAUD = 115200
 
-pygame.mixer.init()
+# Windows-only built-in audio playback for WAV files or fallback beep tones
+tone_freqs = {
+    "A": 440,
+    "B": 550,
+    "C": 660
+}
+
 ser = serial.Serial(ARDUINO_PORT, BAUD, timeout=1)
 time.sleep(2)  # allow Arduino reset
 
@@ -26,7 +33,7 @@ tone_files = {
 }
 
 tone_duration = 2
-shock_delay = 1
+shock_delay = 0
 shock_duration = 2
 
 # Example sequence (you can randomize this)
@@ -58,9 +65,13 @@ def shock_off():
 # ---------------------------
 # STIMULUS CONTROL
 # ---------------------------
-def play_tone(file):
-    pygame.mixer.music.load(file)
-    pygame.mixer.music.play()
+def play_tone(stim):
+    tone_file = tone_files.get(stim)
+    if tone_file and os.path.exists(tone_file):
+        winsound.PlaySound(tone_file, winsound.SND_FILENAME | winsound.SND_ASYNC)
+    else:
+        frequency = tone_freqs.get(stim, 440)
+        winsound.Beep(frequency, int(tone_duration * 1000))
 
 def run_experiment():
     log("START", "", "")
@@ -69,7 +80,7 @@ def run_experiment():
 
         log("TRIAL_START", i, stim)
 
-        play_tone(tone_files[stim])
+        play_tone(stim)
         log("TONE_ON", i, stim)
 
         start = time.time()
