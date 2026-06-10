@@ -14,7 +14,7 @@ import winsound
 ARDUINO_PORT = "COM3"
 BAUD = 115200
 
-tone_freqs = { "A": 440, "B": 550, "C": 660 }
+tone_files = { "A": 440, "B": 550, "C": 660 }
 
 # ---------------------------
 # ARDUINO SETUP
