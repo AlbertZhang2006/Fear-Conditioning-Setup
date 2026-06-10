@@ -14,10 +14,10 @@ import simpleaudio as sa
 ARDUINO_PORT = "COM3"   # change this
 BAUD = 115200
 
-tone_files = {
-    "A": "sounds/ToneA.wav",
-    "B": "sounds/ToneB.wav",
-    "C": "sounds/ToneC.wav"
+tone_freqs = {
+    "A": 440,
+    "B": 550,
+    "C": 660
 }
 
 # ---------------------------
