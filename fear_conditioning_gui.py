@@ -52,10 +52,12 @@ with open(log_file, "w", newline="") as f:
 def shock_on():
     if ser:
         ser.write(b"SHOCK_ON\n")
+        ser.flush()
 
 def shock_off():
     if ser:
         ser.write(b"SHOCK_OFF\n")
+        ser.flush()
 
 # =====================================================
 # AUDIO
