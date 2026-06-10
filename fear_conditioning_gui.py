@@ -18,10 +18,10 @@ BAUD = 115200
 # AUDIO FILES
 # ---------------------------
 
-tone_files = {
-    "A": "ToneA.wav",
-    "B": "ToneB.wav",
-    "C": "ToneC.wav"
+tone_freqs = {
+    "A": 440,
+    "B": 550,
+    "C": 660
 }
 
 # ---------------------------
