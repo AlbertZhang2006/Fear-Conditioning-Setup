@@ -12,10 +12,9 @@ from datetime import datetime
 # CONFIG
 # ---------------------------
 
-ARDUINO_PORT = "COM5"
+ARDUINO_PORT = "COM3"
 BAUD = 115200
 
-# FIX: force correct directory (prevents "file not found")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 tone_files = {
@@ -40,7 +39,7 @@ except Exception as e:
 # PARAMETERS
 # ---------------------------
 
-tone_duration = 30
+tone_duration = 5
 shock_delay = 28
 shock_duration = 2
 
@@ -75,10 +74,10 @@ def shock_off():
         ser.write(b"SHOCK_OFF\n")
 
 # ---------------------------
-# AUDIO
+# AUDIO (FIXED TIMING CONTROL)
 # ---------------------------
 
-def play_tone(file):
+def play_tone(file, duration):
     try:
         print("Playing:", file)
 
@@ -86,11 +85,17 @@ def play_tone(file):
             print("❌ FILE NOT FOUND:", file)
             return
 
-        # stop any overlapping sound
+        # stop any previous sound
         winsound.PlaySound(None, winsound.SND_PURGE)
 
-        # blocking playback (stable timing)
-        winsound.PlaySound(file, winsound.SND_FILENAME)
+        # start playback (async)
+        winsound.PlaySound(file, winsound.SND_ASYNC)
+
+        # enforce experiment-defined duration
+        time.sleep(duration)
+
+        # force stop exactly at tone_duration
+        winsound.PlaySound(None, winsound.SND_PURGE)
 
     except Exception as e:
         print("AUDIO ERROR:", e)
@@ -109,7 +114,8 @@ def run_experiment():
         status_label.config(text=f"Trial {i+1}/{len(sequence)}: {stim}")
         log("TRIAL_START", i, stim)
 
-        play_tone(tone_files[stim])
+        # FIX: tone duration now controlled properly
+        play_tone(tone_files[stim], tone_duration)
         log("TONE_ON", i, stim)
 
         start = time.time()
@@ -132,7 +138,7 @@ def run_experiment():
                 time.sleep(remaining)
 
         else:
-            time.sleep(tone_duration)
+            time.sleep(max(0, tone_duration))
 
         log("TRIAL_END", i, stim)
 
@@ -171,7 +177,7 @@ def start_experiment():
     ).start()
 
 # ---------------------------
-# DEBUG CHECK (VERY IMPORTANT)
+# DEBUG CHECK
 # ---------------------------
 
 print("WORKING DIR:", os.getcwd())
@@ -187,7 +193,7 @@ root.title("Fear Conditioning Controller")
 
 tk.Label(root, text="Tone Duration").grid(row=0, column=0)
 tone_entry = tk.Entry(root)
-tone_entry.insert(0, "30")
+tone_entry.insert(0, "5")
 tone_entry.grid(row=0, column=1)
 
 tk.Label(root, text="Shock Delay").grid(row=1, column=0)
