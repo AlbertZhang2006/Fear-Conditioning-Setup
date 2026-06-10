@@ -33,19 +33,6 @@ except:
     print("Arduino not connected")
 
 # =====================================================
-# LOGGING
-# =====================================================
-
-log_file = f"experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-
-def log(event, trial="", stim=""):
-    with open(log_file, "a", newline="") as f:
-        csv.writer(f).writerow([time.time(), event, trial, stim])
-
-with open(log_file, "w", newline="") as f:
-    csv.writer(f).writerow(["timestamp", "event", "trial", "stimulus"])
-
-# =====================================================
 # HARDWARE
 # =====================================================
 
@@ -77,6 +64,19 @@ def tone_off():
 
 stop_event = threading.Event()
 running = False
+export_file = None
+export_enabled = False
+export_lock = threading.Lock()
+experiment_events = []
+trial_summaries = []
+protocol_snapshot = []
+protocol_iti_min = ""
+protocol_iti_max = ""
+last_experiment_events = []
+last_trial_summaries = []
+last_protocol_snapshot = []
+last_protocol_iti_min = ""
+last_protocol_iti_max = ""
 
 # =====================================================
 # TRIAL PARSING
@@ -95,27 +95,170 @@ def get_trials():
         })
     return trials
 
+def get_protocol_rows():
+    return [table.item(row)["values"] for row in table.get_children()]
+
+# =====================================================
+# EXPORT
+# =====================================================
+
+def timestamp_strings(ts=None):
+    ts = time.time() if ts is None else ts
+    return ts, datetime.fromtimestamp(ts).isoformat(timespec="milliseconds")
+
+def set_export_file():
+    global export_file, export_enabled
+    file = filedialog.asksaveasfilename(
+        defaultextension=".csv",
+        filetypes=[("CSV", "*.csv")],
+        initialfile=f"experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    )
+    if not file:
+        return
+
+    export_file = file
+    export_enabled = True
+
+    if last_experiment_events:
+        write_export_file(
+            export_file,
+            last_protocol_snapshot,
+            last_experiment_events,
+            last_trial_summaries,
+            last_protocol_iti_min,
+            last_protocol_iti_max
+        )
+        status.set(f"Exported {os.path.basename(export_file)}")
+    else:
+        status.set(f"Export ready: {os.path.basename(export_file)}")
+
+def append_event(event, trial="", tone="", detail=""):
+    ts, iso = timestamp_strings()
+    row = {
+        "timestamp": ts,
+        "datetime": iso,
+        "event": event,
+        "trial": trial,
+        "tone": tone,
+        "detail": detail
+    }
+
+    with export_lock:
+        experiment_events.append(row)
+        if export_enabled and export_file:
+            write_export_file(
+                export_file,
+                protocol_snapshot,
+                experiment_events,
+                trial_summaries,
+                protocol_iti_min,
+                protocol_iti_max
+            )
+
+    return row
+
+def add_tone_summary(trial, tone, tone_on_event, tone_off_event):
+    duration = tone_off_event["timestamp"] - tone_on_event["timestamp"]
+    with export_lock:
+        trial_summaries.append({
+            "trial": trial,
+            "tone": tone,
+            "tone_start_datetime": tone_on_event["datetime"],
+            "tone_start_timestamp": tone_on_event["timestamp"],
+            "tone_stop_datetime": tone_off_event["datetime"],
+            "tone_stop_timestamp": tone_off_event["timestamp"],
+            "tone_duration_seconds": duration
+        })
+
+        if export_enabled and export_file:
+            write_export_file(
+                export_file,
+                protocol_snapshot,
+                experiment_events,
+                trial_summaries,
+                protocol_iti_min,
+                protocol_iti_max
+            )
+
+def write_export_file(file, protocol_rows, events, summaries, iti_min_value, iti_max_value):
+    with open(file, "w", newline="") as f:
+        w = csv.writer(f)
+
+        w.writerow(["ExportCreated", datetime.now().isoformat(timespec="milliseconds")])
+        w.writerow(["ITI_MIN", iti_min_value])
+        w.writerow(["ITI_MAX", iti_max_value])
+        w.writerow([])
+
+        w.writerow(["ProtocolTable"])
+        w.writerow(["Trial", "Tone", "ToneDuration", "ShockStart", "ShockDuration"])
+        for i, row in enumerate(protocol_rows, start=1):
+            w.writerow([i] + list(row))
+        w.writerow([])
+
+        w.writerow(["TonePlaybackSummary"])
+        w.writerow([
+            "Trial",
+            "Tone",
+            "ToneStartDateTime",
+            "ToneStartTimestamp",
+            "ToneStopDateTime",
+            "ToneStopTimestamp",
+            "TonePlayedForSeconds"
+        ])
+        for summary in summaries:
+            w.writerow([
+                summary["trial"],
+                summary["tone"],
+                summary["tone_start_datetime"],
+                f"{summary['tone_start_timestamp']:.6f}",
+                summary["tone_stop_datetime"],
+                f"{summary['tone_stop_timestamp']:.6f}",
+                f"{summary['tone_duration_seconds']:.6f}"
+            ])
+        w.writerow([])
+
+        w.writerow(["EventLog"])
+        w.writerow(["DateTime", "Timestamp", "Event", "Trial", "Tone", "Detail"])
+        for event in events:
+            w.writerow([
+                event["datetime"],
+                f"{event['timestamp']:.6f}",
+                event["event"],
+                event["trial"],
+                event["tone"],
+                event["detail"]
+            ])
+
 # =====================================================
 # EXPERIMENT ENGINE
 # =====================================================
 
 def run_experiment():
-    global running
+    global running, experiment_events, trial_summaries, protocol_snapshot
+    global last_experiment_events, last_trial_summaries, last_protocol_snapshot
+    global protocol_iti_min, protocol_iti_max
+    global last_protocol_iti_min, last_protocol_iti_max
     running = True
     stop_event.clear()
+    experiment_events = []
+    trial_summaries = []
+    protocol_snapshot = get_protocol_rows()
+    protocol_iti_min = iti_min_var.get()
+    protocol_iti_max = iti_max_var.get()
 
     try:
         trials = get_trials()
-        iti_min = float(iti_min_var.get())
-        iti_max = float(iti_max_var.get())
+        iti_min = float(protocol_iti_min)
+        iti_max = float(protocol_iti_max)
 
-        log("START")
+        append_event("START", detail=f"trials={len(trials)}")
 
         for i, t in enumerate(trials):
             if stop_event.is_set():
                 break
 
-            status.set(f"Trial {i+1}/{len(trials)}")
+            trial_number = i + 1
+            status.set(f"Trial {trial_number}/{len(trials)}")
 
             start = time.time()
             tone_stop_time = start + t["tone_duration"]
@@ -131,7 +274,7 @@ def run_experiment():
             )
 
             tone_on(t["tone"])
-            log("TONE_ON", i, t["tone"])
+            tone_on_event = append_event("TONE_ON", trial_number, t["tone"])
 
             tone_stopped = False
             shock_started = False
@@ -142,17 +285,18 @@ def run_experiment():
 
                 if not tone_stopped and now >= tone_stop_time:
                     tone_off()
-                    log("TONE_OFF", i, t["tone"])
+                    tone_off_event = append_event("TONE_OFF", trial_number, t["tone"])
+                    add_tone_summary(trial_number, t["tone"], tone_on_event, tone_off_event)
                     tone_stopped = True
 
                 if shock_start_time is not None and not shock_started and now >= shock_start_time:
                     shock_on()
-                    log("SHOCK_ON", i, t["tone"])
+                    append_event("SHOCK_ON", trial_number, t["tone"])
                     shock_started = True
 
                 if shock_started and not shock_stopped and now >= shock_stop_time:
                     shock_off()
-                    log("SHOCK_OFF", i, t["tone"])
+                    append_event("SHOCK_OFF", trial_number, t["tone"])
                     shock_stopped = True
 
                 next_times = []
@@ -168,23 +312,42 @@ def run_experiment():
 
             if not tone_stopped:
                 tone_off()
-                log("TONE_OFF", i, t["tone"])
+                tone_off_event = append_event("TONE_OFF", trial_number, t["tone"], "stopped early")
+                add_tone_summary(trial_number, t["tone"], tone_on_event, tone_off_event)
 
             if shock_started and not shock_stopped:
                 shock_off()
-                log("SHOCK_OFF", i, t["tone"])
+                append_event("SHOCK_OFF", trial_number, t["tone"], "stopped early")
 
-            log("TRIAL_END", i, t["tone"])
+            append_event("TRIAL_END", trial_number, t["tone"])
 
             iti = random.uniform(iti_min, iti_max)
             status.set(f"ITI {iti:.1f}s")
             stop_event.wait(iti)
 
-        log("END")
+        if stop_event.is_set():
+            append_event("STOPPED")
+        else:
+            append_event("END")
 
     finally:
         tone_off()
         shock_off()
+        with export_lock:
+            last_experiment_events = list(experiment_events)
+            last_trial_summaries = list(trial_summaries)
+            last_protocol_snapshot = list(protocol_snapshot)
+            last_protocol_iti_min = protocol_iti_min
+            last_protocol_iti_max = protocol_iti_max
+            if export_enabled and export_file:
+                write_export_file(
+                    export_file,
+                    protocol_snapshot,
+                    experiment_events,
+                    trial_summaries,
+                    protocol_iti_min,
+                    protocol_iti_max
+                )
         running = False
         status.set("Idle")
         start_btn.config(state="normal")
@@ -207,6 +370,22 @@ def stop():
 # =====================================================
 # TABLE EDITING
 # =====================================================
+
+def add_trial():
+    table.insert("", "end", values=("A",5,"",0))
+
+def delete_trial():
+    selected = table.selection()
+    if not selected:
+        messagebox.showinfo("Delete Trial", "Select one or more trials to delete.")
+        return
+
+    if running:
+        messagebox.showwarning("Delete Trial", "Stop the experiment before deleting trials.")
+        return
+
+    for row in selected:
+        table.delete(row)
 
 def edit_cell(event):
     row = table.identify_row(event.y)
@@ -319,20 +498,24 @@ table.bind("<Double-1>", edit_cell)
 
 table.insert("", "end", values=("A",10,8,2))
 
-btns = tk.Frame(root)
-btns.pack()
+run_btns = tk.Frame(root)
+run_btns.pack(pady=(6, 2))
 
-tk.Button(btns, text="Add Trial",
-          command=lambda: table.insert("", "end", values=("A",5,"",0))).pack(side="left")
+tk.Button(run_btns, text="Add Trial", command=add_trial).pack(side="left", padx=2)
+tk.Button(run_btns, text="Delete Trial", command=delete_trial).pack(side="left", padx=2)
 
-tk.Button(btns, text="Save", command=save_protocol).pack(side="left")
-tk.Button(btns, text="Load", command=load_protocol).pack(side="left")
+start_btn = tk.Button(run_btns, text="Start", command=start)
+start_btn.pack(side="left", padx=2)
 
-start_btn = tk.Button(btns, text="Start", command=start)
-start_btn.pack(side="left")
+stop_btn = tk.Button(run_btns, text="Stop", command=stop, state="disabled")
+stop_btn.pack(side="left", padx=2)
 
-stop_btn = tk.Button(btns, text="Stop", command=stop, state="disabled")
-stop_btn.pack(side="left")
+file_btns = tk.Frame(root)
+file_btns.pack(pady=(2, 6))
+
+tk.Button(file_btns, text="Save Trial", command=save_protocol).pack(side="left", padx=2)
+tk.Button(file_btns, text="Load Previous Trial", command=load_protocol).pack(side="left", padx=2)
+tk.Button(file_btns, text="Export Data for Trial Held", command=set_export_file).pack(side="left", padx=2)
 
 tk.Label(root, textvariable=status).pack()
 
