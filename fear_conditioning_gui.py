@@ -118,44 +118,67 @@ def run_experiment():
             status.set(f"Trial {i+1}/{len(trials)}")
 
             start = time.time()
+            tone_stop_time = start + t["tone_duration"]
+            shock_start_time = (
+                start + t["shock_start"]
+                if t["shock_start"] is not None
+                else None
+            )
+            shock_stop_time = (
+                shock_start_time + t["shock_duration"]
+                if shock_start_time is not None
+                else None
+            )
 
             tone_on(t["tone"])
             log("TONE_ON", i, t["tone"])
 
+            tone_stopped = False
             shock_started = False
+            shock_stopped = shock_start_time is None
 
-            if t["shock_start"] is not None:
-                while time.time() - start < t["shock_start"]:
-                    if stop_event.is_set(): break
-                    time.sleep(0.005)
+            while not stop_event.is_set() and not (tone_stopped and shock_stopped):
+                now = time.time()
 
-                if not stop_event.is_set():
+                if not tone_stopped and now >= tone_stop_time:
+                    tone_off()
+                    log("TONE_OFF", i, t["tone"])
+                    tone_stopped = True
+
+                if shock_start_time is not None and not shock_started and now >= shock_start_time:
                     shock_on()
-                    shock_started = True
                     log("SHOCK_ON", i, t["tone"])
+                    shock_started = True
 
-                    time.sleep(t["shock_duration"])
-
+                if shock_started and not shock_stopped and now >= shock_stop_time:
                     shock_off()
                     log("SHOCK_OFF", i, t["tone"])
+                    shock_stopped = True
 
-            while time.time() - start < t["tone_duration"]:
-                if stop_event.is_set(): break
-                time.sleep(0.005)
+                next_times = []
+                if not tone_stopped:
+                    next_times.append(tone_stop_time)
+                if shock_start_time is not None and not shock_started:
+                    next_times.append(shock_start_time)
+                if shock_started and not shock_stopped:
+                    next_times.append(shock_stop_time)
 
-            tone_off()
-            log("TONE_OFF", i, t["tone"])
+                if next_times:
+                    time.sleep(min(0.005, max(0.001, min(next_times) - time.time())))
 
-            while time.time() - start < max(t["tone_duration"], 
-                                           (t["shock_start"] or 0) + t["shock_duration"]):
-                if stop_event.is_set(): break
-                time.sleep(0.005)
+            if not tone_stopped:
+                tone_off()
+                log("TONE_OFF", i, t["tone"])
+
+            if shock_started and not shock_stopped:
+                shock_off()
+                log("SHOCK_OFF", i, t["tone"])
 
             log("TRIAL_END", i, t["tone"])
 
             iti = random.uniform(iti_min, iti_max)
             status.set(f"ITI {iti:.1f}s")
-            time.sleep(iti)
+            stop_event.wait(iti)
 
         log("END")
 
