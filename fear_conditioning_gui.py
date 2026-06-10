@@ -1,230 +1,317 @@
-import tkinter as tk
-import threading
-import serial
+import os
+import csv
 import time
 import random
-import csv
-import os
-import winsound
+import threading
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
 
-# ---------------------------
+import serial
+import winsound
+
+# =====================================================
 # CONFIG
-# ---------------------------
+# =====================================================
 
 ARDUINO_PORT = "COM5"
 BAUD = 115200
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 tone_files = {
-    "A": os.path.join(BASE_DIR, "WhiteNoise,SR=50k,F=4K-20K.wav"),
-    "B": os.path.join(BASE_DIR, "BrownNoise,SR=50k,F=4K-8K.wav"),
-    "C": os.path.join(BASE_DIR, "BlueNoise,SR=50k,F=12K-20K.wav")
+    "A": os.path.join(SCRIPT_DIR, "BlueNoise,SR=50k,F=12K-20K.wav"),
+    "B": os.path.join(SCRIPT_DIR, "BrownNoise,SR=50k,F=4K-8K.wav"),
+    "C": os.path.join(SCRIPT_DIR, "WhiteNoise,SR=50k,F=4K-20K.wav"),
 }
-
-# ---------------------------
-# ARDUINO SETUP
-# ---------------------------
 
 try:
     ser = serial.Serial(ARDUINO_PORT, BAUD, timeout=1)
     time.sleep(2)
-    arduino_connected = True
-except Exception as e:
-    print("Arduino not connected:", e)
-    arduino_connected = False
+except:
+    ser = None
+    print("Arduino not connected")
 
-# ---------------------------
-# PARAMETERS
-# ---------------------------
-
-tone_duration = 5
-shock_delay = 28
-shock_duration = 2
-
-iti_min = 60
-iti_max = 120
-
-sequence = ["A", "B", "A", "B", "A", "C"]
-
-# ---------------------------
+# =====================================================
 # LOGGING
-# ---------------------------
+# =====================================================
 
 log_file = f"experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
-with open(log_file, "w", newline="") as f:
-    csv.writer(f).writerow(["time", "event", "trial", "stimulus"])
-
-def log(event, trial, stim):
+def log(event, trial="", stim=""):
     with open(log_file, "a", newline="") as f:
         csv.writer(f).writerow([time.time(), event, trial, stim])
 
-# ---------------------------
-# ARDUINO CONTROL
-# ---------------------------
+with open(log_file, "w", newline="") as f:
+    csv.writer(f).writerow(["timestamp", "event", "trial", "stimulus"])
+
+# =====================================================
+# HARDWARE
+# =====================================================
 
 def shock_on():
-    if arduino_connected:
+    if ser:
         ser.write(b"SHOCK_ON\n")
+        ser.flush()
 
 def shock_off():
-    if arduino_connected:
+    if ser:
         ser.write(b"SHOCK_OFF\n")
+        ser.flush()
 
-# ---------------------------
-# AUDIO (FIXED TIMING CONTROL)
-# ---------------------------
+# =====================================================
+# AUDIO
+# =====================================================
 
-def play_tone(file, duration):
-    try:
-        print("Playing:", file)
+def tone_on(stim):
+    path = tone_files.get(stim)
+    if path and os.path.exists(path):
+        winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
 
-        if not os.path.exists(file):
-            print("❌ FILE NOT FOUND:", file)
-            return
+def tone_off():
+    winsound.PlaySound(None, winsound.SND_PURGE)
 
-        # stop any previous sound
-        winsound.PlaySound(None, winsound.SND_PURGE)
+# =====================================================
+# GLOBAL STATE
+# =====================================================
 
-        # start playback (async)
-        winsound.PlaySound(file, winsound.SND_ASYNC)
+stop_event = threading.Event()
+running = False
 
-        # enforce experiment-defined duration
-        time.sleep(duration)
+# =====================================================
+# TRIAL PARSING
+# =====================================================
 
-        # force stop exactly at tone_duration
-        winsound.PlaySound(None, winsound.SND_PURGE)
+def get_trials():
+    trials = []
+    for row in table.get_children():
+        v = table.item(row)["values"]
+        shock_start = v[2]
+        trials.append({
+            "tone": v[0],
+            "tone_duration": float(v[1]),
+            "shock_start": None if shock_start == "" else float(shock_start),
+            "shock_duration": float(v[3])
+        })
+    return trials
 
-    except Exception as e:
-        print("AUDIO ERROR:", e)
-
-# ---------------------------
-# EXPERIMENT LOOP
-# ---------------------------
+# =====================================================
+# EXPERIMENT ENGINE
+# =====================================================
 
 def run_experiment():
-    status_label.config(text="Running...")
+    global running
+    running = True
+    stop_event.clear()
 
-    log("START", "", "")
+    try:
+        trials = get_trials()
+        iti_min = float(iti_min_var.get())
+        iti_max = float(iti_max_var.get())
 
-    for i, stim in enumerate(sequence):
+        log("START")
 
-        status_label.config(text=f"Trial {i+1}/{len(sequence)}: {stim}")
-        log("TRIAL_START", i, stim)
+        for i, t in enumerate(trials):
+            if stop_event.is_set():
+                break
 
-        # FIX: tone duration now controlled properly
-        play_tone(tone_files[stim], tone_duration)
-        log("TONE_ON", i, stim)
+            status.set(f"Trial {i+1}/{len(trials)}")
 
-        start = time.time()
+            start = time.time()
 
-        if stim == "A":
+            tone_on(t["tone"])
+            log("TONE_ON", i, t["tone"])
 
-            while time.time() - start < shock_delay:
-                time.sleep(0.01)
+            shock_started = False
 
-            shock_on()
-            log("SHOCK_ON", i, stim)
+            if t["shock_start"] is not None:
+                while time.time() - start < t["shock_start"]:
+                    if stop_event.is_set(): break
+                    time.sleep(0.005)
 
-            time.sleep(shock_duration)
+                if not stop_event.is_set():
+                    shock_on()
+                    shock_started = True
+                    log("SHOCK_ON", i, t["tone"])
 
-            shock_off()
-            log("SHOCK_OFF", i, stim)
+                    time.sleep(t["shock_duration"])
 
-            remaining = tone_duration - (shock_delay + shock_duration)
-            if remaining > 0:
-                time.sleep(remaining)
+                    shock_off()
+                    log("SHOCK_OFF", i, t["tone"])
 
-        else:
-            time.sleep(max(0, tone_duration))
+            while time.time() - start < t["tone_duration"]:
+                if stop_event.is_set(): break
+                time.sleep(0.005)
 
-        log("TRIAL_END", i, stim)
+            tone_off()
+            log("TONE_OFF", i, t["tone"])
 
-        iti = random.uniform(iti_min, iti_max)
-        log(f"ITI_{iti:.1f}", i, stim)
+            while time.time() - start < max(t["tone_duration"], 
+                                           (t["shock_start"] or 0) + t["shock_duration"]):
+                if stop_event.is_set(): break
+                time.sleep(0.005)
 
-        time.sleep(iti)
+            log("TRIAL_END", i, t["tone"])
 
-    log("END", "", "")
-    status_label.config(text="Done")
+            iti = random.uniform(iti_min, iti_max)
+            status.set(f"ITI {iti:.1f}s")
+            time.sleep(iti)
 
-# ---------------------------
-# START EXPERIMENT
-# ---------------------------
+        log("END")
 
-def start_experiment():
+    finally:
+        tone_off()
+        shock_off()
+        running = False
+        status.set("Idle")
+        start_btn.config(state="normal")
+        stop_btn.config(state="disabled")
 
-    global tone_duration, shock_delay, shock_duration
-    global iti_min, iti_max, sequence
+# =====================================================
+# CONTROL
+# =====================================================
 
-    tone_duration = float(tone_entry.get())
-    shock_delay = float(shock_entry.get())
-    shock_duration = float(shockdur_entry.get())
+def start():
+    if running:
+        return
+    start_btn.config(state="disabled")
+    stop_btn.config(state="normal")
+    threading.Thread(target=run_experiment, daemon=True).start()
 
-    iti_min = float(itimin_entry.get())
-    iti_max = float(itimax_entry.get())
+def stop():
+    stop_event.set()
 
-    sequence = [
-        x.strip().upper()
-        for x in seq_entry.get().split(",")
-    ]
+# =====================================================
+# TABLE EDITING
+# =====================================================
 
-    threading.Thread(
-        target=run_experiment,
-        daemon=True
-    ).start()
+def edit_cell(event):
+    row = table.identify_row(event.y)
+    col = table.identify_column(event.x)
+    if not row:
+        return
 
-# ---------------------------
-# DEBUG CHECK
-# ---------------------------
+    x, y, w, h = table.bbox(row, col)
+    idx = int(col[1:]) - 1
+    values = list(table.item(row)["values"])
 
-print("WORKING DIR:", os.getcwd())
-for k, v in tone_files.items():
-    print(k, "->", v, "exists:", os.path.exists(v))
+    if idx == 0:
+        cb = ttk.Combobox(root, values=["A","B","C"], state="readonly")
+        cb.place(x=x+table.winfo_x(), y=y+table.winfo_y(), width=w, height=h)
+        cb.set(values[idx])
 
-# ---------------------------
+        def save(e=None):
+            values[idx] = cb.get()
+            table.item(row, values=values)
+            cb.destroy()
+
+        cb.bind("<<ComboboxSelected>>", save)
+        cb.focus()
+
+    else:
+        e = tk.Entry(root)
+        e.place(x=x+table.winfo_x(), y=y+table.winfo_y(), width=w, height=h)
+        e.insert(0, values[idx])
+
+        def save(e2=None):
+            values[idx] = e.get()
+            table.item(row, values=values)
+            e.destroy()
+
+        e.bind("<Return>", save)
+        e.bind("<FocusOut>", save)
+        e.focus()
+
+# =====================================================
+# SAVE / LOAD
+# =====================================================
+
+def save_protocol():
+    file = filedialog.asksaveasfilename(defaultextension=".csv")
+    if not file:
+        return
+
+    with open(file, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["ITI_MIN", iti_min_var.get()])
+        w.writerow(["ITI_MAX", iti_max_var.get()])
+        w.writerow([])
+        w.writerow(["Tone","ToneDuration","ShockStart","ShockDuration"])
+
+        for r in table.get_children():
+            w.writerow(table.item(r)["values"])
+
+def load_protocol():
+    file = filedialog.askopenfilename(filetypes=[("CSV","*.csv")])
+    if not file:
+        return
+
+    for r in table.get_children():
+        table.delete(r)
+
+    with open(file) as f:
+        r = csv.reader(f)
+        rows = list(r)
+
+    global iti_min_var, iti_max_var
+
+    iti_min_var.set(rows[0][1])
+    iti_max_var.set(rows[1][1])
+
+    start_idx = rows.index([]) + 2
+
+    for row in rows[start_idx:]:
+        table.insert("", "end", values=row)
+
+# =====================================================
 # GUI
-# ---------------------------
+# =====================================================
 
 root = tk.Tk()
 root.title("Fear Conditioning Controller")
 
-tk.Label(root, text="Tone Duration").grid(row=0, column=0)
-tone_entry = tk.Entry(root)
-tone_entry.insert(0, "5")
-tone_entry.grid(row=0, column=1)
+status = tk.StringVar(value="Idle")
 
-tk.Label(root, text="Shock Delay").grid(row=1, column=0)
-shock_entry = tk.Entry(root)
-shock_entry.insert(0, "28")
-shock_entry.grid(row=1, column=1)
+top = tk.Frame(root)
+top.pack()
 
-tk.Label(root, text="Shock Duration").grid(row=2, column=0)
-shockdur_entry = tk.Entry(root)
-shockdur_entry.insert(0, "2")
-shockdur_entry.grid(row=2, column=1)
+iti_min_var = tk.StringVar(value="2")
+iti_max_var = tk.StringVar(value="3")
 
-tk.Label(root, text="ITI Min").grid(row=3, column=0)
-itimin_entry = tk.Entry(root)
-itimin_entry.insert(0, "60")
-itimin_entry.grid(row=3, column=1)
+tk.Label(top, text="ITI Min").grid(row=0, column=0)
+tk.Entry(top, textvariable=iti_min_var, width=6).grid(row=0, column=1)
 
-tk.Label(root, text="ITI Max").grid(row=4, column=0)
-itimax_entry = tk.Entry(root)
-itimax_entry.insert(0, "120")
-itimax_entry.grid(row=4, column=1)
+tk.Label(top, text="ITI Max").grid(row=0, column=2)
+tk.Entry(top, textvariable=iti_max_var, width=6).grid(row=0, column=3)
 
-tk.Label(root, text="Sequence").grid(row=5, column=0)
-seq_entry = tk.Entry(root, width=40)
-seq_entry.insert(0, "A,B,A,B,A,C")
-seq_entry.grid(row=5, column=1)
+cols = ["Tone","ToneDuration","ShockStart","ShockDuration"]
 
-start_btn = tk.Button(root, text="Start Experiment", command=start_experiment)
-start_btn.grid(row=6, column=0, columnspan=2)
+table = ttk.Treeview(root, columns=cols, show="headings")
+for c in cols:
+    table.heading(c, text=c)
+    table.column(c, width=120)
 
-status_label = tk.Label(root, text="Ready")
-status_label.grid(row=7, column=0, columnspan=2)
+table.pack(fill="both", expand=True)
+table.bind("<Double-1>", edit_cell)
+
+table.insert("", "end", values=("A",10,8,2))
+
+btns = tk.Frame(root)
+btns.pack()
+
+tk.Button(btns, text="Add Trial",
+          command=lambda: table.insert("", "end", values=("A",5,"",0))).pack(side="left")
+
+tk.Button(btns, text="Save", command=save_protocol).pack(side="left")
+tk.Button(btns, text="Load", command=load_protocol).pack(side="left")
+
+start_btn = tk.Button(btns, text="Start", command=start)
+start_btn.pack(side="left")
+
+stop_btn = tk.Button(btns, text="Stop", command=stop, state="disabled")
+stop_btn.pack(side="left")
+
+tk.Label(root, textvariable=status).pack()
 
 root.mainloop()
+
