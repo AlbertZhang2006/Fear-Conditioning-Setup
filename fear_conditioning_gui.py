@@ -4,20 +4,22 @@ import serial
 import time
 import random
 import csv
-from datetime import datetime
+import os
 import winsound
+from datetime import datetime
 
 # ---------------------------
 # CONFIG
 # ---------------------------
 
-ARDUINO_PORT = "COM3"
+ARDUINO_PORT = "COM5"
 BAUD = 115200
 
+# Put WAV files in SAME folder as this script
 tone_files = {
-    "A": "BlueNoise,SR=50k,F=12K-20K.wav",
+    "A": "WhiteNoise,SR=50k,F=4K-20K.wav",
     "B": "BrownNoise,SR=50k,F=4K-8K.wav",
-    "C": "WhiteNoise,SR=50k,F=4K-20K.wav"
+    "C": "BlueNoise,SR=50k,F=12K-20K.wav"
 }
 
 # ---------------------------
@@ -28,20 +30,20 @@ try:
     ser = serial.Serial(ARDUINO_PORT, BAUD, timeout=1)
     time.sleep(2)
     arduino_connected = True
-except:
-    print("Arduino not connected")
+except Exception as e:
+    print("Arduino not connected:", e)
     arduino_connected = False
 
 # ---------------------------
-# DEFAULT PARAMETERS
+# PARAMETERS
 # ---------------------------
 
-tone_duration = 30
-shock_delay = 28
+tone_duration = 5
+shock_delay = 2
 shock_duration = 2
 
-iti_min = 60
-iti_max = 120
+iti_min = 1
+iti_max = 3
 
 sequence = ["A", "B", "A", "B", "A", "C"]
 
@@ -53,7 +55,6 @@ log_file = f"experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
 with open(log_file, "w", newline="") as f:
     csv.writer(f).writerow(["time", "event", "trial", "stimulus"])
-
 
 def log(event, trial, stim):
     with open(log_file, "a", newline="") as f:
@@ -72,15 +73,29 @@ def shock_off():
         ser.write(b"SHOCK_OFF\n")
 
 # ---------------------------
-# AUDIO (NO INSTALLS NEEDED)
+# AUDIO (DEBUG SAFE)
 # ---------------------------
 
 def play_tone(file):
-    # Plays WAV asynchronously (does NOT block experiment)
-    winsound.PlaySound(file, winsound.SND_FILENAME | winsound.SND_ASYNC)
+    try:
+        path = os.path.abspath(file)
+        print("Playing:", path)
+
+        if not os.path.exists(path):
+            print("ERROR: FILE NOT FOUND ->", path)
+            return
+
+        # stop any previous sound
+        winsound.PlaySound(None, winsound.SND_PURGE)
+
+        # BLOCKING playback (IMPORTANT for debugging reliability)
+        winsound.PlaySound(path, winsound.SND_FILENAME)
+
+    except Exception as e:
+        print("AUDIO ERROR:", e)
 
 # ---------------------------
-# EXPERIMENT
+# EXPERIMENT LOOP
 # ---------------------------
 
 def run_experiment():
@@ -91,7 +106,6 @@ def run_experiment():
     for i, stim in enumerate(sequence):
 
         status_label.config(text=f"Trial {i+1}/{len(sequence)}: {stim}")
-
         log("TRIAL_START", i, stim)
 
         play_tone(tone_files[stim])
@@ -101,7 +115,6 @@ def run_experiment():
 
         if stim == "A":
 
-            # wait until shock time
             while time.time() - start < shock_delay:
                 time.sleep(0.01)
 
@@ -124,6 +137,7 @@ def run_experiment():
 
         iti = random.uniform(iti_min, iti_max)
         log(f"ITI_{iti:.1f}", i, stim)
+
         time.sleep(iti)
 
     log("END", "", "")
@@ -160,7 +174,7 @@ def start_experiment():
 # ---------------------------
 
 root = tk.Tk()
-root.title("Fear Conditioning Controller (Python 3.14 Compatible)")
+root.title("Fear Conditioning Controller")
 
 tk.Label(root, text="Tone Duration").grid(row=0, column=0)
 tone_entry = tk.Entry(root)
