@@ -68,22 +68,24 @@ def log(event, trial, stim):
 def shock_on():
     if arduino_connected:
         ser.write(b"SHOCK_ON\n")
+        ser.flush()
 
 def shock_off():
     if arduino_connected:
         ser.write(b"SHOCK_OFF\n")
+        ser.flush()
 
 # ---------------------------
 # AUDIO (FIXED TIMING CONTROL)
 # ---------------------------
 
-def play_tone(file, duration):
+def start_tone(file):
     try:
         print("Playing:", file)
 
         if not os.path.exists(file):
             print("❌ FILE NOT FOUND:", file)
-            return
+            return False
 
         # stop any previous sound
         winsound.PlaySound(None, winsound.SND_PURGE)
@@ -91,12 +93,17 @@ def play_tone(file, duration):
         # start playback (async)
         winsound.PlaySound(file, winsound.SND_ASYNC)
 
-        # enforce experiment-defined duration
-        time.sleep(duration)
+        return True
 
+    except Exception as e:
+        print("AUDIO ERROR:", e)
+        return False
+
+
+def stop_tone():
+    try:
         # force stop exactly at tone_duration
         winsound.PlaySound(None, winsound.SND_PURGE)
-
     except Exception as e:
         print("AUDIO ERROR:", e)
 
@@ -114,8 +121,7 @@ def run_experiment():
         status_label.config(text=f"Trial {i+1}/{len(sequence)}: {stim}")
         log("TRIAL_START", i, stim)
 
-        # FIX: tone duration now controlled properly
-        play_tone(tone_files[stim], tone_duration)
+        tone_started = start_tone(tone_files[stim])
         log("TONE_ON", i, stim)
 
         start = time.time()
@@ -133,12 +139,12 @@ def run_experiment():
             shock_off()
             log("SHOCK_OFF", i, stim)
 
-            remaining = tone_duration - (shock_delay + shock_duration)
-            if remaining > 0:
-                time.sleep(remaining)
+        remaining = tone_duration - (time.time() - start)
+        if remaining > 0:
+            time.sleep(remaining)
 
-        else:
-            time.sleep(max(0, tone_duration))
+        if tone_started:
+            stop_tone()
 
         log("TRIAL_END", i, stim)
 
