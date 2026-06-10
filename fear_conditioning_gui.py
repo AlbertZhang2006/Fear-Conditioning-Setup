@@ -15,11 +15,13 @@ from datetime import datetime
 ARDUINO_PORT = "COM5"
 BAUD = 115200
 
-# Put WAV files in SAME folder as this script
+# FIX: force correct directory (prevents "file not found")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 tone_files = {
-    "A": "WhiteNoise,SR=50k,F=4K-20K.wav",
-    "B": "BrownNoise,SR=50k,F=4K-8K.wav",
-    "C": "BlueNoise,SR=50k,F=12K-20K.wav"
+    "A": os.path.join(BASE_DIR, "WhiteNoise,SR=50k,F=4K-20K.wav"),
+    "B": os.path.join(BASE_DIR, "BrownNoise,SR=50k,F=4K-8K.wav"),
+    "C": os.path.join(BASE_DIR, "BlueNoise,SR=50k,F=12K-20K.wav")
 }
 
 # ---------------------------
@@ -38,12 +40,12 @@ except Exception as e:
 # PARAMETERS
 # ---------------------------
 
-tone_duration = 5
-shock_delay = 2
+tone_duration = 30
+shock_delay = 28
 shock_duration = 2
 
-iti_min = 1
-iti_max = 3
+iti_min = 60
+iti_max = 120
 
 sequence = ["A", "B", "A", "B", "A", "C"]
 
@@ -73,23 +75,22 @@ def shock_off():
         ser.write(b"SHOCK_OFF\n")
 
 # ---------------------------
-# AUDIO (DEBUG SAFE)
+# AUDIO
 # ---------------------------
 
 def play_tone(file):
     try:
-        path = os.path.abspath(file)
-        print("Playing:", path)
+        print("Playing:", file)
 
-        if not os.path.exists(path):
-            print("ERROR: FILE NOT FOUND ->", path)
+        if not os.path.exists(file):
+            print("❌ FILE NOT FOUND:", file)
             return
 
-        # stop any previous sound
+        # stop any overlapping sound
         winsound.PlaySound(None, winsound.SND_PURGE)
 
-        # BLOCKING playback (IMPORTANT for debugging reliability)
-        winsound.PlaySound(path, winsound.SND_FILENAME)
+        # blocking playback (stable timing)
+        winsound.PlaySound(file, winsound.SND_FILENAME)
 
     except Exception as e:
         print("AUDIO ERROR:", e)
@@ -168,6 +169,14 @@ def start_experiment():
         target=run_experiment,
         daemon=True
     ).start()
+
+# ---------------------------
+# DEBUG CHECK (VERY IMPORTANT)
+# ---------------------------
+
+print("WORKING DIR:", os.getcwd())
+for k, v in tone_files.items():
+    print(k, "->", v, "exists:", os.path.exists(v))
 
 # ---------------------------
 # GUI
