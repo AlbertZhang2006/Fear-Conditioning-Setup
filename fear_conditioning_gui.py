@@ -5,20 +5,16 @@ import time
 import random
 import csv
 from datetime import datetime
-import simpleaudio as sa
+import winsound
 
 # ---------------------------
 # CONFIG
 # ---------------------------
 
-ARDUINO_PORT = "COM3"   # change this
+ARDUINO_PORT = "COM3"
 BAUD = 115200
 
-tone_freqs = {
-    "A": 440,
-    "B": 550,
-    "C": 660
-}
+tone_freqs = { "A": 440, "B": 550, "C": 660 }
 
 # ---------------------------
 # ARDUINO SETUP
@@ -54,6 +50,7 @@ log_file = f"experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 with open(log_file, "w", newline="") as f:
     csv.writer(f).writerow(["time", "event", "trial", "stimulus"])
 
+
 def log(event, trial, stim):
     with open(log_file, "a", newline="") as f:
         csv.writer(f).writerow([time.time(), event, trial, stim])
@@ -71,15 +68,15 @@ def shock_off():
         ser.write(b"SHOCK_OFF\n")
 
 # ---------------------------
-# AUDIO (NO PYGAME)
+# AUDIO (NO INSTALLS NEEDED)
 # ---------------------------
 
 def play_tone(file):
-    wave_obj = sa.WaveObject.from_wave_file(file)
-    wave_obj.play()
+    # Plays WAV asynchronously (does NOT block experiment)
+    winsound.PlaySound(file, winsound.SND_FILENAME | winsound.SND_ASYNC)
 
 # ---------------------------
-# EXPERIMENT CORE
+# EXPERIMENT
 # ---------------------------
 
 def run_experiment():
@@ -93,7 +90,6 @@ def run_experiment():
 
         log("TRIAL_START", i, stim)
 
-        # play tone
         play_tone(tone_files[stim])
         log("TONE_ON", i, stim)
 
@@ -101,6 +97,7 @@ def run_experiment():
 
         if stim == "A":
 
+            # wait until shock time
             while time.time() - start < shock_delay:
                 time.sleep(0.01)
 
@@ -129,7 +126,7 @@ def run_experiment():
     status_label.config(text="Done")
 
 # ---------------------------
-# GUI START
+# START EXPERIMENT
 # ---------------------------
 
 def start_experiment():
@@ -159,7 +156,7 @@ def start_experiment():
 # ---------------------------
 
 root = tk.Tk()
-root.title("Fear Conditioning Controller")
+root.title("Fear Conditioning Controller (Python 3.14 Compatible)")
 
 tk.Label(root, text="Tone Duration").grid(row=0, column=0)
 tone_entry = tk.Entry(root)
@@ -191,11 +188,7 @@ seq_entry = tk.Entry(root, width=40)
 seq_entry.insert(0, "A,B,A,B,A,C")
 seq_entry.grid(row=5, column=1)
 
-start_btn = tk.Button(
-    root,
-    text="Start Experiment",
-    command=start_experiment
-)
+start_btn = tk.Button(root, text="Start Experiment", command=start_experiment)
 start_btn.grid(row=6, column=0, columnspan=2)
 
 status_label = tk.Label(root, text="Ready")
