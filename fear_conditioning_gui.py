@@ -125,26 +125,45 @@ def run_experiment():
         log("TONE_ON", i, stim)
 
         start = time.time()
+        tone_stop_time = start + tone_duration
+        shock_start_time = start + shock_delay if stim == "A" else None
+        shock_stop_time = (
+            shock_start_time + shock_duration
+            if shock_start_time is not None
+            else None
+        )
 
-        if stim == "A":
+        tone_stopped = not tone_started
+        shock_started = False
+        shock_stopped = shock_start_time is None
 
-            while time.time() - start < shock_delay:
-                time.sleep(0.01)
+        while not (tone_stopped and shock_stopped):
+            now = time.time()
 
-            shock_on()
-            log("SHOCK_ON", i, stim)
+            if not tone_stopped and now >= tone_stop_time:
+                stop_tone()
+                tone_stopped = True
 
-            time.sleep(shock_duration)
+            if shock_start_time is not None and not shock_started and now >= shock_start_time:
+                shock_on()
+                log("SHOCK_ON", i, stim)
+                shock_started = True
 
-            shock_off()
-            log("SHOCK_OFF", i, stim)
+            if shock_started and not shock_stopped and now >= shock_stop_time:
+                shock_off()
+                log("SHOCK_OFF", i, stim)
+                shock_stopped = True
 
-        remaining = tone_duration - (time.time() - start)
-        if remaining > 0:
-            time.sleep(remaining)
+            next_times = []
+            if not tone_stopped:
+                next_times.append(tone_stop_time)
+            if shock_start_time is not None and not shock_started:
+                next_times.append(shock_start_time)
+            if shock_started and not shock_stopped:
+                next_times.append(shock_stop_time)
 
-        if tone_started:
-            stop_tone()
+            if next_times:
+                time.sleep(min(0.01, max(0.001, min(next_times) - time.time())))
 
         log("TRIAL_END", i, stim)
 
