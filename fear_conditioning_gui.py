@@ -12,7 +12,7 @@ from datetime import datetime
 # CONFIG
 # ---------------------------
 
-ARDUINO_PORT = "COM3"
+ARDUINO_PORT = "COM5"
 BAUD = 115200
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
