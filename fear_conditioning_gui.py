@@ -73,11 +73,13 @@ trial_summaries = []
 protocol_snapshot = []
 protocol_iti_min = ""
 protocol_iti_max = ""
+protocol_start_delay = ""
 last_experiment_events = []
 last_trial_summaries = []
 last_protocol_snapshot = []
 last_protocol_iti_min = ""
 last_protocol_iti_max = ""
+last_protocol_start_delay = ""
 
 # =====================================================
 # TRIAL PARSING
@@ -98,6 +100,10 @@ def get_trials():
 
 def get_protocol_rows():
     return [table.item(row)["values"] for row in table.get_children()]
+
+def get_start_delay_seconds():
+    value = start_delay_var.get().strip()
+    return 0.0 if value == "" else float(value)
 
 # =====================================================
 # EXPORT
@@ -145,7 +151,8 @@ def start_auto_export_file():
         experiment_events,
         trial_summaries,
         protocol_iti_min,
-        protocol_iti_max
+        protocol_iti_max,
+        protocol_start_delay
     )
 
 def stop_auto_export_file():
@@ -157,7 +164,8 @@ def stop_auto_export_file():
             experiment_events,
             trial_summaries,
             protocol_iti_min,
-            protocol_iti_max
+            protocol_iti_max,
+            protocol_start_delay
         )
     auto_export_active = False
 
@@ -177,7 +185,8 @@ def export_data_manually():
             experiment_events,
             trial_summaries,
             protocol_iti_min,
-            protocol_iti_max
+            protocol_iti_max,
+            protocol_start_delay
         )
         status.set(f"Exported {os.path.basename(file)}")
     elif last_experiment_events:
@@ -187,7 +196,8 @@ def export_data_manually():
             last_experiment_events,
             last_trial_summaries,
             last_protocol_iti_min,
-            last_protocol_iti_max
+            last_protocol_iti_max,
+            last_protocol_start_delay
         )
         status.set(f"Exported {os.path.basename(file)}")
     else:
@@ -213,7 +223,8 @@ def append_event(event, trial="", tone="", detail=""):
                 experiment_events,
                 trial_summaries,
                 protocol_iti_min,
-                protocol_iti_max
+                protocol_iti_max,
+                protocol_start_delay
             )
 
     return row
@@ -238,16 +249,18 @@ def add_tone_summary(trial, tone, tone_on_event, tone_off_event):
                 experiment_events,
                 trial_summaries,
                 protocol_iti_min,
-                protocol_iti_max
+                protocol_iti_max,
+                protocol_start_delay
             )
 
-def write_export_file(file, protocol_rows, events, summaries, iti_min_value, iti_max_value):
+def write_export_file(file, protocol_rows, events, summaries, iti_min_value, iti_max_value, start_delay_value):
     with open(file, "w", newline="") as f:
         w = csv.writer(f)
 
         w.writerow(["ExportCreated", datetime.now().isoformat(timespec="milliseconds")])
         w.writerow(["ITI_MIN", iti_min_value])
         w.writerow(["ITI_MAX", iti_max_value])
+        w.writerow(["START_DELAY_SECONDS", start_delay_value])
         w.writerow([])
 
         w.writerow(["ProtocolTable"])
@@ -297,8 +310,8 @@ def write_export_file(file, protocol_rows, events, summaries, iti_min_value, iti
 def run_experiment():
     global running, experiment_events, trial_summaries, protocol_snapshot
     global last_experiment_events, last_trial_summaries, last_protocol_snapshot
-    global protocol_iti_min, protocol_iti_max
-    global last_protocol_iti_min, last_protocol_iti_max
+    global protocol_iti_min, protocol_iti_max, protocol_start_delay
+    global last_protocol_iti_min, last_protocol_iti_max, last_protocol_start_delay
     running = True
     stop_event.clear()
     experiment_events = []
@@ -306,12 +319,22 @@ def run_experiment():
     protocol_snapshot = get_protocol_rows()
     protocol_iti_min = iti_min_var.get()
     protocol_iti_max = iti_max_var.get()
+    protocol_start_delay = start_delay_var.get().strip() or "0"
 
     try:
         trials = get_trials()
         iti_min = float(protocol_iti_min)
         iti_max = float(protocol_iti_max)
+        start_delay = get_start_delay_seconds()
         start_auto_export_file()
+
+        if start_delay > 0:
+            append_event("START_DELAY", detail=f"seconds={start_delay}")
+            status.set(f"Start delay {start_delay:.1f}s")
+            stop_event.wait(start_delay)
+            if stop_event.is_set():
+                append_event("STOPPED")
+                return
 
         append_event("START", detail=f"trials={len(trials)}")
 
@@ -401,6 +424,7 @@ def run_experiment():
             last_protocol_snapshot = list(protocol_snapshot)
             last_protocol_iti_min = protocol_iti_min
             last_protocol_iti_max = protocol_iti_max
+            last_protocol_start_delay = protocol_start_delay
             stop_auto_export_file()
         running = False
         status.set("Idle")
@@ -491,6 +515,7 @@ def save_protocol():
         w = csv.writer(f)
         w.writerow(["ITI_MIN", iti_min_var.get()])
         w.writerow(["ITI_MAX", iti_max_var.get()])
+        w.writerow(["START_DELAY_SECONDS", start_delay_var.get().strip() or "0"])
         w.writerow([])
         w.writerow(["Tone","ToneDuration","ShockStart","ShockDuration"])
 
@@ -509,12 +534,20 @@ def load_protocol():
         r = csv.reader(f)
         rows = list(r)
 
-    global iti_min_var, iti_max_var
+    global iti_min_var, iti_max_var, start_delay_var
 
-    iti_min_var.set(rows[0][1])
-    iti_max_var.set(rows[1][1])
+    metadata_end = rows.index([])
+    metadata = {
+        row[0]: row[1]
+        for row in rows[:metadata_end]
+        if len(row) >= 2
+    }
 
-    start_idx = rows.index([]) + 2
+    iti_min_var.set(metadata.get("ITI_MIN", "2"))
+    iti_max_var.set(metadata.get("ITI_MAX", "3"))
+    start_delay_var.set(metadata.get("START_DELAY_SECONDS", "0"))
+
+    start_idx = metadata_end + 2
 
     for row in rows[start_idx:]:
         table.insert("", "end", values=row)
@@ -533,12 +566,16 @@ top.pack()
 
 iti_min_var = tk.StringVar(value="2")
 iti_max_var = tk.StringVar(value="3")
+start_delay_var = tk.StringVar(value="0")
 
 tk.Label(top, text="ITI Min").grid(row=0, column=0)
 tk.Entry(top, textvariable=iti_min_var, width=6).grid(row=0, column=1)
 
 tk.Label(top, text="ITI Max").grid(row=0, column=2)
 tk.Entry(top, textvariable=iti_max_var, width=6).grid(row=0, column=3)
+
+tk.Label(top, text="Time delay before experiment begins (sec)").grid(row=1, column=0, columnspan=3, sticky="e")
+tk.Entry(top, textvariable=start_delay_var, width=6).grid(row=1, column=3)
 
 cols = ["Tone","ToneDuration","ShockStart","ShockDuration"]
 
