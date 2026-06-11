@@ -115,6 +115,8 @@ def timestamp_strings(ts=None):
     return ts, datetime.fromtimestamp(ts).isoformat(timespec="milliseconds")
 
 def format_timestamp(ts):
+    if isinstance(ts, str):
+        return ts
     return "" if ts in ("", None) else f"{ts:.6f}"
 
 def tone_id(tone):
@@ -123,9 +125,11 @@ def tone_id(tone):
 def export_file_names(base_file):
     folder = os.path.dirname(base_file)
     base = os.path.splitext(os.path.basename(base_file))[0]
+    if base.startswith("experiment_"):
+        base = base[len("experiment_"):]
     return (
-        os.path.join(folder, f"Experiment Summary_{base}.csv"),
-        os.path.join(folder, f"Trial Summary Table_{base}.csv")
+        os.path.join(folder, f"{base}_Experiment Summary.csv"),
+        os.path.join(folder, f"{base}_Trial Data Table.csv")
     )
 
 def choose_auto_export_folder():
@@ -158,7 +162,7 @@ def start_auto_export_file():
 
     base_file = os.path.join(
         auto_export_folder,
-        f"experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}_auto.csv"
+        f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     )
     auto_experiment_summary_file, auto_trial_summary_file = export_file_names(base_file)
     auto_export_active = True
@@ -192,7 +196,7 @@ def export_data_manually():
     file = filedialog.asksaveasfilename(
         defaultextension=".csv",
         filetypes=[("CSV", "*.csv")],
-        initialfile=f"experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        initialfile=f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
         title="Choose Export Base Name"
     )
     if not file:
@@ -211,7 +215,7 @@ def export_data_manually():
             protocol_iti_max,
             protocol_start_delay
         )
-        status.set("Exported experiment summary and trial summary table")
+        status.set("Exported experiment summary and trial data table")
     elif last_experiment_events:
         write_export_files(
             experiment_summary_file,
@@ -223,7 +227,7 @@ def export_data_manually():
             last_protocol_iti_max,
             last_protocol_start_delay
         )
-        status.set("Exported experiment summary and trial summary table")
+        status.set("Exported experiment summary and trial data table")
     else:
         messagebox.showinfo("Export Data", "No experiment data has been recorded yet.")
 
@@ -268,8 +272,8 @@ def add_trial_summary(trial, tone, has_shock):
             "iti_start_timestamp": "",
             "iti_stop_timestamp": "",
             "shock": 1 if has_shock else 0,
-            "shock_on_timestamp": "",
-            "shock_off_timestamp": ""
+            "shock_on_timestamp": "" if has_shock else "NA",
+            "shock_off_timestamp": "" if has_shock else "NA"
         })
         write_auto_export_files()
 
@@ -469,6 +473,13 @@ def run_experiment():
                 shock_off()
                 shock_off_event = append_event("SHOCK_OFF", trial_number, t["tone"], "stopped early")
                 update_trial_summary(trial_number, shock_off_timestamp=shock_off_event["timestamp"])
+            elif stop_event.is_set() and shock_start_time is not None and not shock_started:
+                update_trial_summary(
+                    trial_number,
+                    shock=0,
+                    shock_on_timestamp="NA",
+                    shock_off_timestamp="NA"
+                )
 
             append_event("TRIAL_END", trial_number, t["tone"])
 
