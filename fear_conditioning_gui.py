@@ -16,6 +16,10 @@ import winsound
 
 ARDUINO_PORT = "COM5"
 BAUD = 115200
+CAMERA_ON_COMMAND = b"CAMERA_ON\n"
+CAMERA_OFF_COMMAND = b"CAMERA_OFF\n"
+SHOCK_ON_COMMAND = b"SHOCK_ON\n"
+SHOCK_OFF_COMMAND = b"SHOCK_OFF\n"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -36,15 +40,22 @@ except:
 # HARDWARE
 # =====================================================
 
-def shock_on():
+def send_hardware_command(command):
     if ser:
-        ser.write(b"SHOCK_ON\n")
+        ser.write(command)
         ser.flush()
 
+def camera_on():
+    send_hardware_command(CAMERA_ON_COMMAND)
+
+def camera_off():
+    send_hardware_command(CAMERA_OFF_COMMAND)
+
+def shock_on():
+    send_hardware_command(SHOCK_ON_COMMAND)
+
 def shock_off():
-    if ser:
-        ser.write(b"SHOCK_OFF\n")
-        ser.flush()
+    send_hardware_command(SHOCK_OFF_COMMAND)
 
 # =====================================================
 # AUDIO
@@ -392,6 +403,9 @@ def run_experiment():
         start_delay = get_start_delay_seconds()
         start_auto_export_file()
 
+        camera_on()
+        append_event("CAMERA_ON")
+
         if start_delay > 0:
             append_event("START_DELAY", detail=f"seconds={start_delay}")
             status.set(f"Start delay {start_delay:.1f}s")
@@ -500,6 +514,8 @@ def run_experiment():
     finally:
         tone_off()
         shock_off()
+        camera_off()
+        append_event("CAMERA_OFF")
         with export_lock:
             last_experiment_events = list(experiment_events)
             last_trial_summaries = list(trial_summaries)
