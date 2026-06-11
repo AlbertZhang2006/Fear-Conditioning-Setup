@@ -65,7 +65,8 @@ def tone_off():
 stop_event = threading.Event()
 running = False
 auto_export_folder = None
-auto_export_file = None
+auto_experiment_summary_file = None
+auto_trial_summary_file = None
 auto_export_active = False
 export_lock = threading.Lock()
 experiment_events = []
@@ -113,6 +114,20 @@ def timestamp_strings(ts=None):
     ts = time.time() if ts is None else ts
     return ts, datetime.fromtimestamp(ts).isoformat(timespec="milliseconds")
 
+def format_timestamp(ts):
+    return "" if ts in ("", None) else f"{ts:.6f}"
+
+def tone_id(tone):
+    return {"A": 0, "B": 1, "C": 2}.get(tone, "")
+
+def export_file_names(base_file):
+    folder = os.path.dirname(base_file)
+    base = os.path.splitext(os.path.basename(base_file))[0]
+    return (
+        os.path.join(folder, f"{base}_Experiment Summary.csv"),
+        os.path.join(folder, f"{base}_Trial Summary Table.csv")
+    )
+
 def choose_auto_export_folder():
     global auto_export_folder
     if running:
@@ -134,19 +149,22 @@ def choose_auto_export_folder():
     status.set(f"Auto export folder: {os.path.basename(folder)}")
 
 def start_auto_export_file():
-    global auto_export_file, auto_export_active
+    global auto_experiment_summary_file, auto_trial_summary_file, auto_export_active
     if not auto_export_folder:
-        auto_export_file = None
+        auto_experiment_summary_file = None
+        auto_trial_summary_file = None
         auto_export_active = False
         return
 
-    auto_export_file = os.path.join(
+    base_file = os.path.join(
         auto_export_folder,
         f"experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}_auto.csv"
     )
+    auto_experiment_summary_file, auto_trial_summary_file = export_file_names(base_file)
     auto_export_active = True
-    write_export_file(
-        auto_export_file,
+    write_export_files(
+        auto_experiment_summary_file,
+        auto_trial_summary_file,
         protocol_snapshot,
         experiment_events,
         trial_summaries,
@@ -157,9 +175,10 @@ def start_auto_export_file():
 
 def stop_auto_export_file():
     global auto_export_active
-    if auto_export_active and auto_export_file:
-        write_export_file(
-            auto_export_file,
+    if auto_export_active and auto_experiment_summary_file and auto_trial_summary_file:
+        write_export_files(
+            auto_experiment_summary_file,
+            auto_trial_summary_file,
             protocol_snapshot,
             experiment_events,
             trial_summaries,
@@ -173,14 +192,18 @@ def export_data_manually():
     file = filedialog.asksaveasfilename(
         defaultextension=".csv",
         filetypes=[("CSV", "*.csv")],
-        initialfile=f"experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        initialfile=f"experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        title="Choose Export Base Name"
     )
     if not file:
         return
 
+    experiment_summary_file, trial_summary_file = export_file_names(file)
+
     if experiment_events:
-        write_export_file(
-            file,
+        write_export_files(
+            experiment_summary_file,
+            trial_summary_file,
             protocol_snapshot,
             experiment_events,
             trial_summaries,
@@ -188,10 +211,11 @@ def export_data_manually():
             protocol_iti_max,
             protocol_start_delay
         )
-        status.set(f"Exported {os.path.basename(file)}")
+        status.set("Exported experiment summary and trial summary table")
     elif last_experiment_events:
-        write_export_file(
-            file,
+        write_export_files(
+            experiment_summary_file,
+            trial_summary_file,
             last_protocol_snapshot,
             last_experiment_events,
             last_trial_summaries,
@@ -199,9 +223,22 @@ def export_data_manually():
             last_protocol_iti_max,
             last_protocol_start_delay
         )
-        status.set(f"Exported {os.path.basename(file)}")
+        status.set("Exported experiment summary and trial summary table")
     else:
         messagebox.showinfo("Export Data", "No experiment data has been recorded yet.")
+
+def write_auto_export_files():
+    if auto_export_active and auto_experiment_summary_file and auto_trial_summary_file:
+        write_export_files(
+            auto_experiment_summary_file,
+            auto_trial_summary_file,
+            protocol_snapshot,
+            experiment_events,
+            trial_summaries,
+            protocol_iti_min,
+            protocol_iti_max,
+            protocol_start_delay
+        )
 
 def append_event(event, trial="", tone="", detail=""):
     ts, iso = timestamp_strings()
@@ -216,44 +253,52 @@ def append_event(event, trial="", tone="", detail=""):
 
     with export_lock:
         experiment_events.append(row)
-        if auto_export_active and auto_export_file:
-            write_export_file(
-                auto_export_file,
-                protocol_snapshot,
-                experiment_events,
-                trial_summaries,
-                protocol_iti_min,
-                protocol_iti_max,
-                protocol_start_delay
-            )
+        write_auto_export_files()
 
     return row
 
-def add_tone_summary(trial, tone, tone_on_event, tone_off_event):
-    duration = tone_off_event["timestamp"] - tone_on_event["timestamp"]
+def add_trial_summary(trial, tone, has_shock):
     with export_lock:
         trial_summaries.append({
             "trial": trial,
             "tone": tone,
-            "tone_start_datetime": tone_on_event["datetime"],
-            "tone_start_timestamp": tone_on_event["timestamp"],
-            "tone_stop_datetime": tone_off_event["datetime"],
-            "tone_stop_timestamp": tone_off_event["timestamp"],
-            "tone_duration_seconds": duration
+            "tone_id": tone_id(tone),
+            "tone_on_timestamp": "",
+            "tone_off_timestamp": "",
+            "iti_start_timestamp": "",
+            "iti_stop_timestamp": "",
+            "shock": 1 if has_shock else 0,
+            "shock_on_timestamp": "",
+            "shock_off_timestamp": ""
         })
+        write_auto_export_files()
 
-        if auto_export_active and auto_export_file:
-            write_export_file(
-                auto_export_file,
-                protocol_snapshot,
-                experiment_events,
-                trial_summaries,
-                protocol_iti_min,
-                protocol_iti_max,
-                protocol_start_delay
-            )
+def update_trial_summary(trial, **updates):
+    with export_lock:
+        for summary in trial_summaries:
+            if summary["trial"] == trial:
+                summary.update(updates)
+                break
+        write_auto_export_files()
 
-def write_export_file(file, protocol_rows, events, summaries, iti_min_value, iti_max_value, start_delay_value):
+def experiment_start_event(events):
+    for event in events:
+        if event["event"] == "START":
+            return event
+    return None
+
+def write_export_files(experiment_summary_file, trial_summary_file, protocol_rows, events, summaries, iti_min_value, iti_max_value, start_delay_value):
+    write_experiment_summary_file(
+        experiment_summary_file,
+        protocol_rows,
+        events,
+        iti_min_value,
+        iti_max_value,
+        start_delay_value
+    )
+    write_trial_summary_file(trial_summary_file, events, summaries)
+
+def write_experiment_summary_file(file, protocol_rows, events, iti_min_value, iti_max_value, start_delay_value):
     with open(file, "w", newline="") as f:
         w = csv.writer(f)
 
@@ -269,28 +314,6 @@ def write_export_file(file, protocol_rows, events, summaries, iti_min_value, iti
             w.writerow([i] + list(row))
         w.writerow([])
 
-        w.writerow(["TonePlaybackSummary"])
-        w.writerow([
-            "Trial",
-            "Tone",
-            "ToneStartDateTime",
-            "ToneStartTimestamp",
-            "ToneStopDateTime",
-            "ToneStopTimestamp",
-            "TonePlayedForSeconds"
-        ])
-        for summary in summaries:
-            w.writerow([
-                summary["trial"],
-                summary["tone"],
-                summary["tone_start_datetime"],
-                f"{summary['tone_start_timestamp']:.6f}",
-                summary["tone_stop_datetime"],
-                f"{summary['tone_stop_timestamp']:.6f}",
-                f"{summary['tone_duration_seconds']:.6f}"
-            ])
-        w.writerow([])
-
         w.writerow(["EventLog"])
         w.writerow(["DateTime", "Timestamp", "Event", "Trial", "Tone", "Detail"])
         for event in events:
@@ -301,6 +324,43 @@ def write_export_file(file, protocol_rows, events, summaries, iti_min_value, iti
                 event["trial"],
                 event["tone"],
                 event["detail"]
+            ])
+
+def write_trial_summary_file(file, events, summaries):
+    start_event = experiment_start_event(events)
+    with open(file, "w", newline="") as f:
+        w = csv.writer(f)
+
+        if start_event:
+            w.writerow(["StartTimestamp", format_timestamp(start_event["timestamp"])])
+            w.writerow(["StartDateTime", start_event["datetime"]])
+        else:
+            w.writerow(["StartTimestamp", ""])
+            w.writerow(["StartDateTime", ""])
+        w.writerow([])
+
+        w.writerow([
+            "Trial",
+            "Tone ID (0,1,2)",
+            "Tone On TS",
+            "Tone Off TS",
+            "ITI Start",
+            "ITI Stop",
+            "Shock (0,1)",
+            "Shock On TS",
+            "Shock Off TS"
+        ])
+        for summary in summaries:
+            w.writerow([
+                summary["trial"],
+                summary["tone_id"],
+                format_timestamp(summary["tone_on_timestamp"]),
+                format_timestamp(summary["tone_off_timestamp"]),
+                format_timestamp(summary["iti_start_timestamp"]),
+                format_timestamp(summary["iti_stop_timestamp"]),
+                summary["shock"],
+                format_timestamp(summary["shock_on_timestamp"]),
+                format_timestamp(summary["shock_off_timestamp"])
             ])
 
 # =====================================================
@@ -358,8 +418,11 @@ def run_experiment():
                 else None
             )
 
+            add_trial_summary(trial_number, t["tone"], shock_start_time is not None)
+
             tone_on(t["tone"])
             tone_on_event = append_event("TONE_ON", trial_number, t["tone"])
+            update_trial_summary(trial_number, tone_on_timestamp=tone_on_event["timestamp"])
 
             tone_stopped = False
             shock_started = False
@@ -371,17 +434,19 @@ def run_experiment():
                 if not tone_stopped and now >= tone_stop_time:
                     tone_off()
                     tone_off_event = append_event("TONE_OFF", trial_number, t["tone"])
-                    add_tone_summary(trial_number, t["tone"], tone_on_event, tone_off_event)
+                    update_trial_summary(trial_number, tone_off_timestamp=tone_off_event["timestamp"])
                     tone_stopped = True
 
                 if shock_start_time is not None and not shock_started and now >= shock_start_time:
                     shock_on()
-                    append_event("SHOCK_ON", trial_number, t["tone"])
+                    shock_on_event = append_event("SHOCK_ON", trial_number, t["tone"])
+                    update_trial_summary(trial_number, shock_on_timestamp=shock_on_event["timestamp"])
                     shock_started = True
 
                 if shock_started and not shock_stopped and now >= shock_stop_time:
                     shock_off()
-                    append_event("SHOCK_OFF", trial_number, t["tone"])
+                    shock_off_event = append_event("SHOCK_OFF", trial_number, t["tone"])
+                    update_trial_summary(trial_number, shock_off_timestamp=shock_off_event["timestamp"])
                     shock_stopped = True
 
                 next_times = []
@@ -398,17 +463,23 @@ def run_experiment():
             if not tone_stopped:
                 tone_off()
                 tone_off_event = append_event("TONE_OFF", trial_number, t["tone"], "stopped early")
-                add_tone_summary(trial_number, t["tone"], tone_on_event, tone_off_event)
+                update_trial_summary(trial_number, tone_off_timestamp=tone_off_event["timestamp"])
 
             if shock_started and not shock_stopped:
                 shock_off()
-                append_event("SHOCK_OFF", trial_number, t["tone"], "stopped early")
+                shock_off_event = append_event("SHOCK_OFF", trial_number, t["tone"], "stopped early")
+                update_trial_summary(trial_number, shock_off_timestamp=shock_off_event["timestamp"])
 
             append_event("TRIAL_END", trial_number, t["tone"])
 
             iti = random.uniform(iti_min, iti_max)
             status.set(f"ITI {iti:.1f}s")
+            iti_start_event = append_event("ITI_START", trial_number, t["tone"], f"seconds={iti:.6f}")
+            update_trial_summary(trial_number, iti_start_timestamp=iti_start_event["timestamp"])
             stop_event.wait(iti)
+            iti_detail = "stopped early" if stop_event.is_set() else ""
+            iti_stop_event = append_event("ITI_STOP", trial_number, t["tone"], iti_detail)
+            update_trial_summary(trial_number, iti_stop_timestamp=iti_stop_event["timestamp"])
 
         if stop_event.is_set():
             append_event("STOPPED")
