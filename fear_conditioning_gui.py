@@ -64,8 +64,9 @@ def tone_off():
 
 stop_event = threading.Event()
 running = False
-export_file = None
-export_enabled = False
+auto_export_folder = None
+auto_export_file = None
+auto_export_active = False
 export_lock = threading.Lock()
 experiment_events = []
 trial_summaries = []
@@ -106,8 +107,56 @@ def timestamp_strings(ts=None):
     ts = time.time() if ts is None else ts
     return ts, datetime.fromtimestamp(ts).isoformat(timespec="milliseconds")
 
-def set_export_file():
-    global export_file, export_enabled
+def choose_auto_export_folder():
+    global auto_export_folder
+    if running:
+        messagebox.showwarning("Auto Export Folder", "Stop the experiment before changing the auto export folder.")
+        return
+
+    folder = filedialog.askdirectory(title="Choose Auto Export Folder")
+    if not folder:
+        auto_export_folder = None
+        status.set("Auto export disabled")
+        return
+
+    auto_export_folder = folder
+    status.set(f"Auto export folder: {os.path.basename(folder)}")
+
+def start_auto_export_file():
+    global auto_export_file, auto_export_active
+    if not auto_export_folder:
+        auto_export_file = None
+        auto_export_active = False
+        return
+
+    auto_export_file = os.path.join(
+        auto_export_folder,
+        f"experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}_auto.csv"
+    )
+    auto_export_active = True
+    write_export_file(
+        auto_export_file,
+        protocol_snapshot,
+        experiment_events,
+        trial_summaries,
+        protocol_iti_min,
+        protocol_iti_max
+    )
+
+def stop_auto_export_file():
+    global auto_export_active
+    if auto_export_active and auto_export_file:
+        write_export_file(
+            auto_export_file,
+            protocol_snapshot,
+            experiment_events,
+            trial_summaries,
+            protocol_iti_min,
+            protocol_iti_max
+        )
+    auto_export_active = False
+
+def export_data_manually():
     file = filedialog.asksaveasfilename(
         defaultextension=".csv",
         filetypes=[("CSV", "*.csv")],
@@ -116,21 +165,28 @@ def set_export_file():
     if not file:
         return
 
-    export_file = file
-    export_enabled = True
-
-    if last_experiment_events:
+    if experiment_events:
         write_export_file(
-            export_file,
+            file,
+            protocol_snapshot,
+            experiment_events,
+            trial_summaries,
+            protocol_iti_min,
+            protocol_iti_max
+        )
+        status.set(f"Exported {os.path.basename(file)}")
+    elif last_experiment_events:
+        write_export_file(
+            file,
             last_protocol_snapshot,
             last_experiment_events,
             last_trial_summaries,
             last_protocol_iti_min,
             last_protocol_iti_max
         )
-        status.set(f"Exported {os.path.basename(export_file)}")
+        status.set(f"Exported {os.path.basename(file)}")
     else:
-        status.set(f"Export ready: {os.path.basename(export_file)}")
+        messagebox.showinfo("Export Data", "No experiment data has been recorded yet.")
 
 def append_event(event, trial="", tone="", detail=""):
     ts, iso = timestamp_strings()
@@ -145,9 +201,9 @@ def append_event(event, trial="", tone="", detail=""):
 
     with export_lock:
         experiment_events.append(row)
-        if export_enabled and export_file:
+        if auto_export_active and auto_export_file:
             write_export_file(
-                export_file,
+                auto_export_file,
                 protocol_snapshot,
                 experiment_events,
                 trial_summaries,
@@ -170,9 +226,9 @@ def add_tone_summary(trial, tone, tone_on_event, tone_off_event):
             "tone_duration_seconds": duration
         })
 
-        if export_enabled and export_file:
+        if auto_export_active and auto_export_file:
             write_export_file(
-                export_file,
+                auto_export_file,
                 protocol_snapshot,
                 experiment_events,
                 trial_summaries,
@@ -250,6 +306,7 @@ def run_experiment():
         trials = get_trials()
         iti_min = float(protocol_iti_min)
         iti_max = float(protocol_iti_max)
+        start_auto_export_file()
 
         append_event("START", detail=f"trials={len(trials)}")
 
@@ -339,15 +396,7 @@ def run_experiment():
             last_protocol_snapshot = list(protocol_snapshot)
             last_protocol_iti_min = protocol_iti_min
             last_protocol_iti_max = protocol_iti_max
-            if export_enabled and export_file:
-                write_export_file(
-                    export_file,
-                    protocol_snapshot,
-                    experiment_events,
-                    trial_summaries,
-                    protocol_iti_min,
-                    protocol_iti_max
-                )
+            stop_auto_export_file()
         running = False
         status.set("Idle")
         start_btn.config(state="normal")
@@ -515,9 +564,11 @@ file_btns.pack(pady=(2, 6))
 
 tk.Button(file_btns, text="Save Trial", command=save_protocol).pack(side="left", padx=2)
 tk.Button(file_btns, text="Load Previous Trial", command=load_protocol).pack(side="left", padx=2)
-tk.Button(file_btns, text="Export Data for Trial Held", command=set_export_file).pack(side="left", padx=2)
+tk.Button(file_btns, text="Set Auto Export Folder", command=choose_auto_export_folder).pack(side="left", padx=2)
+tk.Button(file_btns, text="Export Data for Trial Held", command=export_data_manually).pack(side="left", padx=2)
 
 tk.Label(root, textvariable=status).pack()
 
+root.after(2000, choose_auto_export_folder)
 root.mainloop()
 
