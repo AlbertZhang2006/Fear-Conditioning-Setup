@@ -595,7 +595,7 @@ run_btns.pack(pady=(6, 2))
 tk.Button(run_btns, text="Add Trial", command=add_trial).pack(side="left", padx=2)
 tk.Button(run_btns, text="Delete Trial", command=delete_trial).pack(side="left", padx=2)
 
-start_btn = tk.Button(run_btns, text="Start", command=start)
+start_btn = tk.Button(run_btns, text="Start", command=start, font=("TkDefaultFont", 9, "bold"))
 start_btn.pack(side="left", padx=2)
 
 stop_btn = tk.Button(run_btns, text="Stop", command=stop, state="disabled")
