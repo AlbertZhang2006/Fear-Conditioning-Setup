@@ -124,8 +124,8 @@ def export_file_names(base_file):
     folder = os.path.dirname(base_file)
     base = os.path.splitext(os.path.basename(base_file))[0]
     return (
-        os.path.join(folder, f"{base}_Experiment Summary.csv"),
-        os.path.join(folder, f"{base}_Trial Summary Table.csv")
+        os.path.join(folder, f"Experiment Summary_{base}.csv"),
+        os.path.join(folder, f"Trial Summary Table_{base}.csv")
     )
 
 def choose_auto_export_folder():
@@ -341,14 +341,14 @@ def write_trial_summary_file(file, events, summaries):
 
         w.writerow([
             "Trial",
-            "Tone ID (0,1,2)",
+            "Tone ID",
             "Tone On TS",
             "Tone Off TS",
-            "ITI Start",
-            "ITI Stop",
-            "Shock (0,1)",
+            "Shock",
             "Shock On TS",
-            "Shock Off TS"
+            "Shock Off TS",
+            "ITI Start",
+            "ITI Stop"
         ])
         for summary in summaries:
             w.writerow([
@@ -356,11 +356,11 @@ def write_trial_summary_file(file, events, summaries):
                 summary["tone_id"],
                 format_timestamp(summary["tone_on_timestamp"]),
                 format_timestamp(summary["tone_off_timestamp"]),
-                format_timestamp(summary["iti_start_timestamp"]),
-                format_timestamp(summary["iti_stop_timestamp"]),
                 summary["shock"],
                 format_timestamp(summary["shock_on_timestamp"]),
-                format_timestamp(summary["shock_off_timestamp"])
+                format_timestamp(summary["shock_off_timestamp"]),
+                format_timestamp(summary["iti_start_timestamp"]),
+                format_timestamp(summary["iti_stop_timestamp"])
             ])
 
 # =====================================================
@@ -653,7 +653,7 @@ cols = ["Tone","ToneDuration","ShockStart","ShockDuration"]
 table = ttk.Treeview(root, columns=cols, show="headings")
 for c in cols:
     table.heading(c, text=c)
-    table.column(c, width=120)
+    table.column(c, width=max(120, len(c) * 10), minwidth=len(c) * 10)
 
 table.pack(fill="both", expand=True)
 table.bind("<Double-1>", edit_cell)
