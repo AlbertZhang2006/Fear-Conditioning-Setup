@@ -113,6 +113,11 @@ def choose_auto_export_folder():
         messagebox.showwarning("Auto Export Folder", "Stop the experiment before changing the auto export folder.")
         return
 
+    messagebox.showinfo(
+        "Auto Export Folder",
+        "Choose a folder where the trials will auto export the data to."
+    )
+
     folder = filedialog.askdirectory(title="Choose Auto Export Folder")
     if not folder:
         auto_export_folder = None
@@ -560,12 +565,16 @@ stop_btn = tk.Button(run_btns, text="Stop", command=stop, state="disabled")
 stop_btn.pack(side="left", padx=2)
 
 file_btns = tk.Frame(root)
-file_btns.pack(pady=(2, 6))
+file_btns.pack(pady=2)
 
 tk.Button(file_btns, text="Save Trial", command=save_protocol).pack(side="left", padx=2)
 tk.Button(file_btns, text="Load Previous Trial", command=load_protocol).pack(side="left", padx=2)
-tk.Button(file_btns, text="Set Auto Export Folder", command=choose_auto_export_folder).pack(side="left", padx=2)
-tk.Button(file_btns, text="Export Data for Trial Held", command=export_data_manually).pack(side="left", padx=2)
+
+export_btns = tk.Frame(root)
+export_btns.pack(pady=(2, 6))
+
+tk.Button(export_btns, text="Set Auto Export Folder", command=choose_auto_export_folder).pack(side="left", padx=2)
+tk.Button(export_btns, text="Export Data for Trial Held", command=export_data_manually).pack(side="left", padx=2)
 
 tk.Label(root, textvariable=status).pack()
 
