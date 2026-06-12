@@ -305,6 +305,11 @@ class FearConditioningGUI:
         self.iti_max_var = tk.StringVar(value="3")
         self.start_delay_var = tk.StringVar(value="0")
         self.sequence_randomize_var = tk.BooleanVar(value=False)
+        self.watch_trial_var = tk.StringVar(value="Trial -- / --")
+        self.watch_time_var = tk.StringVar(value="00:00.0")
+        self.watch_phase_var = tk.StringVar(value="Idle")
+        self.watch_tone_var = tk.StringVar(value="Tone: --")
+        self.watch_shock_var = tk.StringVar(value="Shock: --")
 
         self._build()
 
@@ -339,7 +344,7 @@ class FearConditioningGUI:
         return 0.0 if value == "" else float(value)
 
     def _build(self):
-        self.root.minsize(900, 420)
+        self.root.minsize(980, 460)
 
         top = tk.Frame(self.root)
         top.pack(fill="x", padx=8, pady=(8, 4))
@@ -358,9 +363,16 @@ class FearConditioningGUI:
         content = tk.Frame(self.root)
         content.pack(fill="both", expand=True, padx=8, pady=4)
 
-        sequence_box = ttk.LabelFrame(content, text="Sequence Builder")
-        sequence_box.pack(side="left", fill="y", padx=(0, 8))
+        left_panel = tk.Frame(content)
+        left_panel.pack(side="left", fill="y", padx=(0, 8))
+
+        sequence_box = ttk.LabelFrame(left_panel, text="Sequence Builder")
+        sequence_box.pack(fill="x")
         self._build_sequence_builder(sequence_box)
+
+        watch_box = ttk.LabelFrame(left_panel, text="Trial Watch")
+        watch_box.pack(fill="x", pady=(8, 0))
+        self._build_trial_watch(watch_box)
 
         trial_box = tk.Frame(content)
         trial_box.pack(side="left", fill="both", expand=True)
@@ -368,14 +380,30 @@ class FearConditioningGUI:
         tk.Label(trial_box, text="Trial Sequence").pack(anchor="w")
 
         cols = ["Tone", "ToneDuration", "ShockStart", "ShockDuration"]
-        self.table = ttk.Treeview(trial_box, columns=cols, show="headings")
+        table_frame = tk.Frame(trial_box)
+        table_frame.pack(fill="both", expand=True)
+
+        self.table = ttk.Treeview(
+            table_frame,
+            columns=cols,
+            show="tree headings",
+            selectmode="extended",
+        )
+        self.table.heading("#0", text="Trial")
+        self.table.column("#0", width=64, minwidth=54, anchor="center", stretch=False)
         for c in cols:
             self.table.heading(c, text=c)
             self.table.column(c, width=max(120, len(c) * 10), minwidth=len(c) * 10)
 
-        self.table.pack(fill="both", expand=True)
+        trial_scrollbar = ttk.Scrollbar(
+            table_frame, orient="vertical", command=self.table.yview
+        )
+        self.table.configure(yscrollcommand=trial_scrollbar.set)
+        self.table.tag_configure("running", background="#fff2b8")
+        self.table.pack(side="left", fill="both", expand=True)
+        trial_scrollbar.pack(side="right", fill="y")
         self.table.bind("<Double-1>", self.edit_cell)
-        self.table.insert("", "end", values=("A", 10, 8, 2))
+        self.insert_trial_row(("A", 10, 8, 2))
 
         run_btns = tk.Frame(self.root)
         run_btns.pack(pady=(6, 2))
@@ -472,6 +500,23 @@ class FearConditioningGUI:
             command=self.randomize_current_sequence,
         ).pack(fill="x")
 
+    def _build_trial_watch(self, parent):
+        tk.Label(
+            parent,
+            textvariable=self.watch_trial_var,
+            font=("TkDefaultFont", 10, "bold"),
+        ).pack(anchor="w", padx=8, pady=(6, 0))
+        tk.Label(
+            parent,
+            textvariable=self.watch_time_var,
+            font=("TkDefaultFont", 18, "bold"),
+        ).pack(anchor="w", padx=8, pady=(0, 4))
+        tk.Label(parent, textvariable=self.watch_phase_var).pack(anchor="w", padx=8)
+        tk.Label(parent, textvariable=self.watch_tone_var).pack(anchor="w", padx=8)
+        tk.Label(parent, textvariable=self.watch_shock_var).pack(
+            anchor="w", padx=8, pady=(0, 8)
+        )
+
     def build_sequence_from_settings(self):
         if self.controller.is_running():
             messagebox.showwarning(
@@ -564,15 +609,109 @@ class FearConditioningGUI:
         self.replace_trial_rows(rows)
         self.status.set(f"Randomized {len(rows)} trials")
 
+    def insert_trial_row(self, values):
+        self.table.insert("", "end", values=values)
+        self.renumber_trial_rows()
+
     def replace_trial_rows(self, rows):
         for row in self.table.get_children():
             self.table.delete(row)
 
         for values in rows:
             self.table.insert("", "end", values=values)
+        self.renumber_trial_rows()
+
+    def renumber_trial_rows(self):
+        for index, row in enumerate(self.table.get_children(), start=1):
+            self.table.item(row, text=str(index))
+
+    def set_running_trial_row(self, trial_number):
+        for row in self.table.get_children():
+            self.table.item(row, tags=())
+
+        if trial_number in ("", None):
+            return
+
+        try:
+            trial_index = int(trial_number) - 1
+        except (TypeError, ValueError):
+            return
+
+        rows = self.table.get_children()
+        if 0 <= trial_index < len(rows):
+            current_row = rows[trial_index]
+            self.table.item(current_row, tags=("running",))
+            self.table.see(current_row)
+
+    def set_trial_watch(
+        self,
+        trial_number=None,
+        total_trials=None,
+        tone="",
+        phase="Idle",
+        elapsed=0,
+        total_seconds=None,
+        shock_start=None,
+        shock_duration=None,
+        mark_trial=True,
+    ):
+        def update():
+            if trial_number is None or total_trials is None:
+                self.watch_trial_var.set("Trial -- / --")
+            else:
+                self.watch_trial_var.set(f"Trial {trial_number} / {total_trials}")
+
+            elapsed_text = self.format_watch_time(elapsed)
+            if total_seconds is None:
+                self.watch_time_var.set(elapsed_text)
+            else:
+                self.watch_time_var.set(
+                    f"{elapsed_text} / {self.format_watch_time(total_seconds)}"
+                )
+
+            self.watch_phase_var.set(f"Phase: {phase}")
+            self.watch_tone_var.set(f"Tone: {tone or '--'}")
+
+            if shock_start in ("", None):
+                self.watch_shock_var.set("Shock: none")
+            else:
+                self.watch_shock_var.set(
+                    f"Shock: delay {float(shock_start):g}s, duration {float(shock_duration):g}s"
+                )
+
+            if mark_trial:
+                self.set_running_trial_row(trial_number)
+
+        try:
+            self.root.after(0, update)
+        except tk.TclError:
+            return
+
+    def format_watch_time(self, seconds):
+        seconds = max(0, float(seconds or 0))
+        minutes = int(seconds // 60)
+        remaining = seconds - minutes * 60
+        return f"{minutes:02d}:{remaining:04.1f}"
+
+    def place_cell_editor(self, table, row, col, editor):
+        table.update_idletasks()
+        bbox = table.bbox(row, col)
+        if not bbox:
+            editor.destroy()
+            return False
+
+        x, y, w, h = bbox
+        editor.place(
+            x=table.winfo_rootx() - self.root.winfo_rootx() + x,
+            y=table.winfo_rooty() - self.root.winfo_rooty() + y,
+            width=w,
+            height=h,
+        )
+        editor.lift()
+        return True
 
     def add_trial(self):
-        self.table.insert("", "end", values=("A", 5, "", 0))
+        self.insert_trial_row(("A", 5, "", 0))
 
     def delete_trial(self):
         selected = self.table.selection()
@@ -588,21 +727,21 @@ class FearConditioningGUI:
 
         for row in selected:
             self.table.delete(row)
+        self.renumber_trial_rows()
 
     def edit_cell(self, event):
         row = self.table.identify_row(event.y)
         col = self.table.identify_column(event.x)
-        if not row:
+        if not row or col == "#0":
             return
 
-        x, y, w, h = self.table.bbox(row, col)
         idx = int(col[1:]) - 1
         values = list(self.table.item(row)["values"])
-        parent = self.table.master
 
         if idx == 0:
-            cb = ttk.Combobox(parent, values=["A", "B", "C"], state="readonly")
-            cb.place(x=x + self.table.winfo_x(), y=y + self.table.winfo_y(), width=w, height=h)
+            cb = ttk.Combobox(self.root, values=["A", "B", "C"], state="readonly")
+            if not self.place_cell_editor(self.table, row, col, cb):
+                return
             cb.set(values[idx])
 
             def save(e=None):
@@ -613,10 +752,9 @@ class FearConditioningGUI:
             cb.bind("<<ComboboxSelected>>", save)
             cb.focus()
         else:
-            entry = tk.Entry(parent)
-            entry.place(
-                x=x + self.table.winfo_x(), y=y + self.table.winfo_y(), width=w, height=h
-            )
+            entry = tk.Entry(self.root)
+            if not self.place_cell_editor(self.table, row, col, entry):
+                return
             entry.insert(0, values[idx])
 
             def save(e=None):
@@ -638,17 +776,11 @@ class FearConditioningGUI:
         if idx == 0:
             return
 
-        x, y, w, h = self.sequence_table.bbox(row, col)
         values = list(self.sequence_table.item(row)["values"])
-        parent = self.sequence_table.master
 
-        entry = tk.Entry(parent)
-        entry.place(
-            x=x + self.sequence_table.winfo_x(),
-            y=y + self.sequence_table.winfo_y(),
-            width=w,
-            height=h,
-        )
+        entry = tk.Entry(self.root)
+        if not self.place_cell_editor(self.sequence_table, row, col, entry):
+            return
         entry.insert(0, values[idx])
 
         def save(e=None):
@@ -700,5 +832,4 @@ class FearConditioningGUI:
         self.start_delay_var.set(metadata.get("START_DELAY_SECONDS", "0"))
 
         start_idx = metadata_end + 2
-        for row in rows[start_idx:]:
-            self.table.insert("", "end", values=row)
+        self.replace_trial_rows(rows[start_idx:])
