@@ -20,9 +20,10 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 TONE_FILES = {
     "A": os.path.join(SCRIPT_DIR, "BlueNoise,SR=50k,F=12K-20K.wav"),
-    "B": os.path.join(SCRIPT_DIR, "BrownNoise,SR=50k,F=4K-8K.wav"),
+    "B": os.path.join(SCRIPT_DIR, "toneCloud1sMonoFS88200.wav"),
     "C": os.path.join(SCRIPT_DIR, "WhiteNoise,SR=50k,F=4K-20K.wav"),
 }
+LOOPING_TONES = set(TONE_FILES)
 
 
 class HardwareController:
@@ -59,7 +60,10 @@ class AudioController:
     def tone_on(self, stim):
         path = self.tone_files.get(stim)
         if path and os.path.exists(path):
-            winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+            flags = winsound.SND_FILENAME | winsound.SND_ASYNC
+            if stim in LOOPING_TONES:
+                flags |= winsound.SND_LOOP
+            winsound.PlaySound(path, flags)
 
     def tone_off(self):
         winsound.PlaySound(None, winsound.SND_PURGE)
