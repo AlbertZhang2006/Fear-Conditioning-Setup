@@ -1,5 +1,6 @@
 import csv
 import os
+import random
 import time
 import tkinter as tk
 from datetime import datetime
@@ -303,6 +304,7 @@ class FearConditioningGUI:
         self.iti_min_var = tk.StringVar(value="2")
         self.iti_max_var = tk.StringVar(value="3")
         self.start_delay_var = tk.StringVar(value="0")
+        self.sequence_randomize_var = tk.BooleanVar(value=False)
 
         self._build()
 
@@ -337,8 +339,10 @@ class FearConditioningGUI:
         return 0.0 if value == "" else float(value)
 
     def _build(self):
+        self.root.minsize(900, 420)
+
         top = tk.Frame(self.root)
-        top.pack()
+        top.pack(fill="x", padx=8, pady=(8, 4))
 
         tk.Label(top, text="ITI Min").grid(row=0, column=0)
         tk.Entry(top, textvariable=self.iti_min_var, width=6).grid(row=0, column=1)
@@ -351,8 +355,20 @@ class FearConditioningGUI:
         )
         tk.Entry(top, textvariable=self.start_delay_var, width=6).grid(row=1, column=3)
 
+        content = tk.Frame(self.root)
+        content.pack(fill="both", expand=True, padx=8, pady=4)
+
+        sequence_box = ttk.LabelFrame(content, text="Sequence Builder")
+        sequence_box.pack(side="left", fill="y", padx=(0, 8))
+        self._build_sequence_builder(sequence_box)
+
+        trial_box = tk.Frame(content)
+        trial_box.pack(side="left", fill="both", expand=True)
+
+        tk.Label(trial_box, text="Trial Sequence").pack(anchor="w")
+
         cols = ["Tone", "ToneDuration", "ShockStart", "ShockDuration"]
-        self.table = ttk.Treeview(self.root, columns=cols, show="headings")
+        self.table = ttk.Treeview(trial_box, columns=cols, show="headings")
         for c in cols:
             self.table.heading(c, text=c)
             self.table.column(c, width=max(120, len(c) * 10), minwidth=len(c) * 10)
@@ -406,6 +422,155 @@ class FearConditioningGUI:
 
         tk.Label(self.root, textvariable=self.status).pack()
 
+    def _build_sequence_builder(self, parent):
+        cols = ["Tone", "Trials", "ToneDuration", "ShockStart", "ShockDuration"]
+        headings = {
+            "Tone": "Tone",
+            "Trials": "Trials",
+            "ToneDuration": "Tone Dur.",
+            "ShockStart": "Shock Delay",
+            "ShockDuration": "Shock Dur.",
+        }
+        widths = {
+            "Tone": 52,
+            "Trials": 58,
+            "ToneDuration": 82,
+            "ShockStart": 88,
+            "ShockDuration": 82,
+        }
+
+        self.sequence_table = ttk.Treeview(
+            parent, columns=cols, show="headings", height=3, selectmode="browse"
+        )
+        for col in cols:
+            self.sequence_table.heading(col, text=headings[col])
+            self.sequence_table.column(col, width=widths[col], minwidth=widths[col])
+
+        self.sequence_table.pack(fill="x", padx=6, pady=(6, 4))
+        self.sequence_table.bind("<Double-1>", self.edit_sequence_cell)
+        self.sequence_table.insert("", "end", values=("A", 1, 10, 8, 2))
+        self.sequence_table.insert("", "end", values=("B", 0, 10, "", 0))
+        self.sequence_table.insert("", "end", values=("C", 0, 10, "", 0))
+
+        tk.Checkbutton(
+            parent,
+            text="Randomize order when building",
+            variable=self.sequence_randomize_var,
+        ).pack(anchor="w", padx=6, pady=(2, 4))
+
+        btns = tk.Frame(parent)
+        btns.pack(fill="x", padx=6, pady=(0, 6))
+
+        tk.Button(
+            btns,
+            text="Build Sequence",
+            command=self.build_sequence_from_settings,
+        ).pack(fill="x", pady=(0, 3))
+        tk.Button(
+            btns,
+            text="Randomize Current Sequence",
+            command=self.randomize_current_sequence,
+        ).pack(fill="x")
+
+    def build_sequence_from_settings(self):
+        if self.controller.is_running():
+            messagebox.showwarning(
+                "Sequence Builder", "Stop the experiment before building a sequence."
+            )
+            return
+
+        try:
+            rows = self.sequence_builder_trial_rows()
+        except ValueError as exc:
+            messagebox.showerror("Sequence Builder", str(exc))
+            return
+
+        if not rows:
+            messagebox.showinfo(
+                "Sequence Builder", "Enter at least one trial in the sequence builder."
+            )
+            return
+
+        if self.sequence_randomize_var.get():
+            random.shuffle(rows)
+
+        self.replace_trial_rows(rows)
+        self.status.set(f"Built {len(rows)} trials")
+
+    def sequence_builder_trial_rows(self):
+        rows = []
+        for item in self.sequence_table.get_children():
+            tone, trials, tone_duration, shock_start, shock_duration = [
+                str(value).strip() for value in self.sequence_table.item(item)["values"]
+            ]
+
+            try:
+                trial_count = int(trials)
+            except ValueError as exc:
+                raise ValueError(f"Trials for tone {tone} must be a whole number.") from exc
+
+            if trial_count < 0:
+                raise ValueError(f"Trials for tone {tone} cannot be negative.")
+
+            try:
+                tone_duration_value = float(tone_duration)
+            except ValueError as exc:
+                raise ValueError(f"Tone duration for tone {tone} must be a number.") from exc
+
+            if tone_duration_value <= 0:
+                raise ValueError(f"Tone duration for tone {tone} must be greater than 0.")
+
+            if shock_start:
+                try:
+                    shock_start_value = float(shock_start)
+                except ValueError as exc:
+                    raise ValueError(f"Shock delay for tone {tone} must be a number.") from exc
+
+                if shock_start_value < 0:
+                    raise ValueError(f"Shock delay for tone {tone} cannot be negative.")
+
+                try:
+                    shock_duration_value = float(shock_duration)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"Shock duration for tone {tone} must be a number."
+                    ) from exc
+
+                if shock_duration_value < 0:
+                    raise ValueError(
+                        f"Shock duration for tone {tone} cannot be negative."
+                    )
+            else:
+                shock_duration = shock_duration or "0"
+
+            for _ in range(trial_count):
+                rows.append((tone, tone_duration, shock_start, shock_duration))
+
+        return rows
+
+    def randomize_current_sequence(self):
+        if self.controller.is_running():
+            messagebox.showwarning(
+                "Sequence Builder", "Stop the experiment before randomizing the sequence."
+            )
+            return
+
+        rows = [self.table.item(item)["values"] for item in self.table.get_children()]
+        if len(rows) < 2:
+            self.status.set("Need at least two trials to randomize")
+            return
+
+        random.shuffle(rows)
+        self.replace_trial_rows(rows)
+        self.status.set(f"Randomized {len(rows)} trials")
+
+    def replace_trial_rows(self, rows):
+        for row in self.table.get_children():
+            self.table.delete(row)
+
+        for values in rows:
+            self.table.insert("", "end", values=values)
+
     def add_trial(self):
         self.table.insert("", "end", values=("A", 5, "", 0))
 
@@ -433,9 +598,10 @@ class FearConditioningGUI:
         x, y, w, h = self.table.bbox(row, col)
         idx = int(col[1:]) - 1
         values = list(self.table.item(row)["values"])
+        parent = self.table.master
 
         if idx == 0:
-            cb = ttk.Combobox(self.root, values=["A", "B", "C"], state="readonly")
+            cb = ttk.Combobox(parent, values=["A", "B", "C"], state="readonly")
             cb.place(x=x + self.table.winfo_x(), y=y + self.table.winfo_y(), width=w, height=h)
             cb.set(values[idx])
 
@@ -447,7 +613,7 @@ class FearConditioningGUI:
             cb.bind("<<ComboboxSelected>>", save)
             cb.focus()
         else:
-            entry = tk.Entry(self.root)
+            entry = tk.Entry(parent)
             entry.place(
                 x=x + self.table.winfo_x(), y=y + self.table.winfo_y(), width=w, height=h
             )
@@ -461,6 +627,38 @@ class FearConditioningGUI:
             entry.bind("<Return>", save)
             entry.bind("<FocusOut>", save)
             entry.focus()
+
+    def edit_sequence_cell(self, event):
+        row = self.sequence_table.identify_row(event.y)
+        col = self.sequence_table.identify_column(event.x)
+        if not row:
+            return
+
+        idx = int(col[1:]) - 1
+        if idx == 0:
+            return
+
+        x, y, w, h = self.sequence_table.bbox(row, col)
+        values = list(self.sequence_table.item(row)["values"])
+        parent = self.sequence_table.master
+
+        entry = tk.Entry(parent)
+        entry.place(
+            x=x + self.sequence_table.winfo_x(),
+            y=y + self.sequence_table.winfo_y(),
+            width=w,
+            height=h,
+        )
+        entry.insert(0, values[idx])
+
+        def save(e=None):
+            values[idx] = entry.get()
+            self.sequence_table.item(row, values=values)
+            entry.destroy()
+
+        entry.bind("<Return>", save)
+        entry.bind("<FocusOut>", save)
+        entry.focus()
 
     def save_protocol(self):
         file = filedialog.asksaveasfilename(defaultextension=".csv")

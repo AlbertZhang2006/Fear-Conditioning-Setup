@@ -19,7 +19,7 @@ SHOCK_OFF_COMMAND = b"SHOCK_OFF\n"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 TONE_FILES = {
-    "A": os.path.join(SCRIPT_DIR, "BlueNoise,SR=50k,F=12K-20K.wav"),
+    "A": os.path.join(SCRIPT_DIR, "WhiteNoise,SR=50k,F=4K-20K.wav"),
     "B": os.path.join(SCRIPT_DIR, "toneCloud1sMonoFS88200.wav"),
     "C": os.path.join(SCRIPT_DIR, "WhiteNoise,SR=50k,F=4K-20K.wav"),
 }
