@@ -942,6 +942,8 @@ class FearConditioningGUI:
             w.writerow(["ITI_MAX", self.iti_max_var.get()])
             w.writerow(["START_DELAY_SECONDS", self.start_delay_var.get().strip() or "0"])
             w.writerow(["SEQUENCE_RANDOMIZE", str(self.sequence_randomize_var.get())])
+            w.writerow(["OBSERVER_ID", self.observer_var.get()])
+            w.writerow(["DEMONSTRATOR_ID", self.demonstrator_var.get()])
             w.writerow([])
 
             w.writerow(["SequenceBuilder"])
@@ -999,6 +1001,8 @@ class FearConditioningGUI:
         self.sequence_randomize_var.set(
             metadata.get("SEQUENCE_RANDOMIZE", "False").lower() == "true"
         )
+        self.observer_var.set(metadata.get("OBSERVER_ID", ""))
+        self.demonstrator_var.set(metadata.get("DEMONSTRATOR_ID", ""))
 
         if seq_builder_rows is not None:
             for item in self.sequence_table.get_children():
