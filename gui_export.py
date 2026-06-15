@@ -7,6 +7,8 @@ import tkinter as tk
 from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
 
+import openpyxl
+
 
 def timestamp_strings(ts=None):
     ts = time.time() if ts is None else ts
@@ -29,7 +31,7 @@ def export_file_names(base_file):
     if base.startswith("experiment_"):
         base = base[len("experiment_"):]
     return (
-        os.path.join(folder, f"{base}_Experiment Summary.csv"),
+        os.path.join(folder, f"{base}_Experiment Summary.xlsx"),
         os.path.join(folder, f"{base}_Trial Data Table.csv"),
     )
 
@@ -260,40 +262,57 @@ class ExportManager:
         self, file, protocol_rows, events, iti_min_value, iti_max_value, start_delay_value,
         notes="", observer="", demonstrator=""
     ):
-        with open(file, "w", newline="") as f:
-            w = csv.writer(f)
+        wb = openpyxl.Workbook()
+        ws = wb.active
 
-            w.writerow(["ExportCreated", datetime.now().isoformat(timespec="milliseconds")])
-            w.writerow(["Observer", observer])
-            w.writerow(["Demonstrator", demonstrator])
-            w.writerow(["ITI_MIN", iti_min_value])
-            w.writerow(["ITI_MAX", iti_max_value])
-            w.writerow(["START_DELAY_SECONDS", start_delay_value])
-            w.writerow([])
+        # Left side: metadata, notes, event log (columns A–F)
+        left_header = [
+            ["ExportCreated", datetime.now().isoformat(timespec="milliseconds")],
+            ["Observer", observer],
+            ["Demonstrator", demonstrator],
+            ["ITI_MIN", iti_min_value],
+            ["ITI_MAX", iti_max_value],
+            ["START_DELAY_SECONDS", start_delay_value],
+            [],
+            ["ExperimentNotes"],
+            [notes],
+            [],
+            ["EventLog"],
+            ["DateTime", "Timestamp", "Event", "Trial", "Tone", "Detail"],
+        ]
+        for r, row in enumerate(left_header, start=1):
+            for c, val in enumerate(row, start=1):
+                ws.cell(row=r, column=c, value=val)
 
-            w.writerow(["ExperimentNotes"])
-            w.writerow([notes])
-            w.writerow([])
+        event_start = len(left_header) + 1
+        for r, event in enumerate(events, start=event_start):
+            ws.cell(row=r, column=1, value=event["datetime"])
+            ws.cell(row=r, column=2, value=f"{event['timestamp']:.6f}")
+            ws.cell(row=r, column=3, value=event["event"])
+            ws.cell(row=r, column=4, value=event["trial"])
+            ws.cell(row=r, column=5, value=event["tone"])
+            ws.cell(row=r, column=6, value=event["detail"])
 
-            w.writerow(["ProtocolTable"])
-            w.writerow(["Trial", "Tone", "ToneDuration", "ShockStart", "ShockDuration"])
-            for i, row in enumerate(protocol_rows, start=1):
-                w.writerow([i] + list(row))
-            w.writerow([])
+        # Right side: protocol table starting at column H (8)
+        PROTO_COL = 8
+        ws.cell(row=1, column=PROTO_COL, value="ProtocolTable")
+        for c, h in enumerate(
+            ["Trial", "Tone", "ToneDuration", "ShockStart", "ShockDuration"], start=PROTO_COL
+        ):
+            ws.cell(row=2, column=c, value=h)
+        for r, row in enumerate(protocol_rows, start=3):
+            ws.cell(row=r, column=PROTO_COL, value=r - 2)
+            for c, val in enumerate(list(row), start=PROTO_COL + 1):
+                ws.cell(row=r, column=c, value=val)
 
-            w.writerow(["EventLog"])
-            w.writerow(["DateTime", "Timestamp", "Event", "Trial", "Tone", "Detail"])
-            for event in events:
-                w.writerow(
-                    [
-                        event["datetime"],
-                        f"{event['timestamp']:.6f}",
-                        event["event"],
-                        event["trial"],
-                        event["tone"],
-                        event["detail"],
-                    ]
-                )
+        # Auto-fit column A to its longest value
+        max_len = max(
+            (len(str(cell.value)) for cell in ws["A"] if cell.value is not None),
+            default=10,
+        )
+        ws.column_dimensions["A"].width = max_len + 2
+
+        wb.save(file)
 
     def write_trial_summary_file(self, file, events, summaries):
         start_event = next((event for event in events if event["event"] == "START"), None)
