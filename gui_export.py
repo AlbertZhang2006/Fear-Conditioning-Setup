@@ -7,8 +7,6 @@ import tkinter as tk
 from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
 
-import openpyxl
-
 
 def timestamp_strings(ts=None):
     ts = time.time() if ts is None else ts
@@ -31,7 +29,7 @@ def export_file_names(base_file):
     if base.startswith("experiment_"):
         base = base[len("experiment_"):]
     return (
-        os.path.join(folder, f"{base}_Experiment Summary.xlsx"),
+        os.path.join(folder, f"{base}_Experiment Summary.csv"),
         os.path.join(folder, f"{base}_Trial Data Table.csv"),
     )
 
@@ -262,57 +260,50 @@ class ExportManager:
         self, file, protocol_rows, events, iti_min_value, iti_max_value, start_delay_value,
         notes="", observer="", demonstrator=""
     ):
-        wb = openpyxl.Workbook()
-        ws = wb.active
+        with open(file, "w", newline="") as f:
+            w = csv.writer(f)
 
-        # Left side: metadata, notes, event log (columns A–F)
-        left_header = [
-            ["ExportCreated", datetime.now().isoformat(timespec="milliseconds")],
-            ["Observer", observer],
-            ["Demonstrator", demonstrator],
-            ["ITI_MIN", iti_min_value],
-            ["ITI_MAX", iti_max_value],
-            ["START_DELAY_SECONDS", start_delay_value],
-            [],
-            ["ExperimentNotes"],
-            [notes],
-            [],
-            ["EventLog"],
-            ["DateTime", "Timestamp", "Event", "Trial", "Tone", "Detail"],
-        ]
-        for r, row in enumerate(left_header, start=1):
-            for c, val in enumerate(row, start=1):
-                ws.cell(row=r, column=c, value=val)
+            # Left columns (A–B): metadata and notes
+            left_section = [
+                ["ExportCreated", datetime.now().isoformat(timespec="milliseconds")],
+                ["Observer", observer],
+                ["Demonstrator", demonstrator],
+                ["ITI_MIN", iti_min_value],
+                ["ITI_MAX", iti_max_value],
+                ["START_DELAY_SECONDS", start_delay_value],
+                [],
+                ["ExperimentNotes"],
+                [notes],
+            ]
 
-        event_start = len(left_header) + 1
-        for r, event in enumerate(events, start=event_start):
-            ws.cell(row=r, column=1, value=event["datetime"])
-            ws.cell(row=r, column=2, value=f"{event['timestamp']:.6f}")
-            ws.cell(row=r, column=3, value=event["event"])
-            ws.cell(row=r, column=4, value=event["trial"])
-            ws.cell(row=r, column=5, value=event["tone"])
-            ws.cell(row=r, column=6, value=event["detail"])
+            # Right columns (H+): protocol table
+            proto_section = [
+                ["ProtocolTable"],
+                ["Trial", "Tone", "ToneDuration", "ShockStart", "ShockDuration"],
+            ]
+            for i, row in enumerate(protocol_rows, start=1):
+                proto_section.append([i] + list(row))
 
-        # Right side: protocol table starting at column H (8)
-        PROTO_COL = 8
-        ws.cell(row=1, column=PROTO_COL, value="ProtocolTable")
-        for c, h in enumerate(
-            ["Trial", "Tone", "ToneDuration", "ShockStart", "ShockDuration"], start=PROTO_COL
-        ):
-            ws.cell(row=2, column=c, value=h)
-        for r, row in enumerate(protocol_rows, start=3):
-            ws.cell(row=r, column=PROTO_COL, value=r - 2)
-            for c, val in enumerate(list(row), start=PROTO_COL + 1):
-                ws.cell(row=r, column=c, value=val)
+            # Write both sections side by side; protocol starts at column H (index 7)
+            PROTO_COL = 7
+            for i in range(max(len(left_section), len(proto_section))):
+                left = left_section[i] if i < len(left_section) else []
+                proto = proto_section[i] if i < len(proto_section) else []
+                padded = left + [""] * max(0, PROTO_COL - len(left))
+                w.writerow(padded + proto)
 
-        # Auto-fit column A to its longest value
-        max_len = max(
-            (len(str(cell.value)) for cell in ws["A"] if cell.value is not None),
-            default=10,
-        )
-        ws.column_dimensions["A"].width = max_len + 2
-
-        wb.save(file)
+            w.writerow([])
+            w.writerow(["EventLog"])
+            w.writerow(["DateTime", "Timestamp", "Event", "Trial", "Tone", "Detail"])
+            for event in events:
+                w.writerow([
+                    event["datetime"],
+                    f"{event['timestamp']:.6f}",
+                    event["event"],
+                    event["trial"],
+                    event["tone"],
+                    event["detail"],
+                ])
 
     def write_trial_summary_file(self, file, events, summaries):
         start_event = next((event for event in events if event["event"] == "START"), None)
@@ -501,14 +492,14 @@ class FearConditioningGUI:
 
         self.start_btn = tk.Button(
             run_btns,
-            text="Start",
+            text="Start Experiment",
             command=self.controller.start,
             font=("TkDefaultFont", 9, "bold"),
         )
         self.start_btn.pack(side="left", padx=2)
 
         self.stop_btn = tk.Button(
-            run_btns, text="Stop", command=self.controller.stop, state="disabled"
+            run_btns, text="Stop Experiment", command=self.controller.stop, state="disabled"
         )
         self.stop_btn.pack(side="left", padx=2)
 

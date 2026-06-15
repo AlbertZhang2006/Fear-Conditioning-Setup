@@ -100,6 +100,8 @@ class ExperimentController:
         self.protocol_demonstrator = ""
         self.last_protocol_observer = ""
         self.last_protocol_demonstrator = ""
+        self._last_trial_number = ""
+        self._last_trial_tone = ""
 
     def attach_gui(self, gui):
         self.gui = gui
@@ -311,6 +313,9 @@ class ExperimentController:
             self.hardware.shock_off()
             self.hardware.camera_off()
             self.append_event("CAMERA_OFF")
+            final_trial_note = self.gui.pop_trial_note()
+            if final_trial_note:
+                self.append_event("TRIAL_NOTE", self._last_trial_number, self._last_trial_tone, final_trial_note)
             final_notes = self.gui.pop_experiment_note()
             with self.export_lock:
                 self.session_notes = final_notes
@@ -340,6 +345,8 @@ class ExperimentController:
             self.gui.set_run_controls(False)
 
     def run_trial(self, trial_number, total_trials, trial):
+        self._last_trial_number = trial_number
+        self._last_trial_tone = trial["tone"]
         self.gui.status.set(f"Trial {trial_number}/{total_trials}")
 
         start = time.time()
