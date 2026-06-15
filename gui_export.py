@@ -263,7 +263,6 @@ class ExportManager:
         with open(file, "w", newline="") as f:
             w = csv.writer(f)
 
-            # Left columns (A–B): metadata and notes
             left_section = [
                 ["ExportCreated", datetime.now().isoformat(timespec="milliseconds")],
                 ["Observer", observer],
@@ -276,7 +275,6 @@ class ExportManager:
                 [notes],
             ]
 
-            # Right columns (H+): protocol table
             proto_section = [
                 ["ProtocolTable"],
                 ["Trial", "Tone", "ToneDuration", "ShockStart", "ShockDuration"],
@@ -284,26 +282,44 @@ class ExportManager:
             for i, row in enumerate(protocol_rows, start=1):
                 proto_section.append([i] + list(row))
 
-            # Write both sections side by side; protocol starts at column H (index 7)
-            PROTO_COL = 7
-            for i in range(max(len(left_section), len(proto_section))):
-                left = left_section[i] if i < len(left_section) else []
-                proto = proto_section[i] if i < len(proto_section) else []
-                padded = left + [""] * max(0, PROTO_COL - len(left))
-                w.writerow(padded + proto)
+            # EventLog starts 3 rows below the ExperimentNotes label (index 7 + 3 = 10)
+            PROTO_COL = 7   # column H (0-indexed)
+            EVENT_LOG_ROW = 10  # row index where EventLog label appears
+            EVENT_LOG_COLS = ["DateTime", "Timestamp", "Event", "Trial", "Tone", "Trial Note", "Detail"]
+            event_data_start = EVENT_LOG_ROW + 2  # label row + header row
 
-            w.writerow([])
-            w.writerow(["EventLog"])
-            w.writerow(["DateTime", "Timestamp", "Event", "Trial", "Tone", "Detail"])
-            for event in events:
-                w.writerow([
-                    event["datetime"],
-                    f"{event['timestamp']:.6f}",
-                    event["event"],
-                    event["trial"],
-                    event["tone"],
-                    event["detail"],
-                ])
+            total_rows = max(
+                len(proto_section),
+                event_data_start + len(events),
+            )
+            NUM_COLS = PROTO_COL + 6  # enough for both sides
+            grid = [[""] * NUM_COLS for _ in range(total_rows)]
+
+            for r, row_data in enumerate(left_section):
+                for c, val in enumerate(row_data):
+                    grid[r][c] = val
+
+            for r, row_data in enumerate(proto_section):
+                for c, val in enumerate(row_data):
+                    grid[r][PROTO_COL + c] = val
+
+            grid[EVENT_LOG_ROW][0] = "EventLog"
+            for c, h in enumerate(EVENT_LOG_COLS):
+                grid[EVENT_LOG_ROW + 1][c] = h
+            for r, event in enumerate(events, start=event_data_start):
+                grid[r][0] = event["datetime"]
+                grid[r][1] = f"{event['timestamp']:.6f}"
+                grid[r][2] = event["event"]
+                grid[r][3] = event["trial"]
+                grid[r][4] = event["tone"]
+                if event["event"] == "TRIAL_NOTE":
+                    grid[r][5] = event["detail"]
+                else:
+                    grid[r][6] = event["detail"]
+
+            for row in grid:
+                last = max((i for i, v in enumerate(row) if v != ""), default=-1)
+                w.writerow(row[:last + 1] if last >= 0 else [])
 
     def write_trial_summary_file(self, file, events, summaries):
         start_event = next((event for event in events if event["event"] == "START"), None)
