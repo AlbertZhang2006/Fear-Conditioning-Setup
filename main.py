@@ -92,6 +92,12 @@ class ExperimentController:
         self.last_protocol_iti_min = ""
         self.last_protocol_iti_max = ""
         self.last_protocol_start_delay = ""
+        self.session_notes = ""
+        self.last_session_notes = ""
+        self.protocol_observer = ""
+        self.protocol_demonstrator = ""
+        self.last_protocol_observer = ""
+        self.last_protocol_demonstrator = ""
 
     def attach_gui(self, gui):
         self.gui = gui
@@ -152,6 +158,12 @@ class ExperimentController:
                     break
             self.write_auto_export_files()
 
+    def save_and_reset_experiment_notes(self, note):
+        with self.export_lock:
+            self.session_notes = note
+            self.write_auto_export_files()
+        self.gui.status.set("Experiment notes saved and reset")
+
     def write_auto_export_files(self):
         self.export_manager.write_auto_export_files(
             self.protocol_snapshot,
@@ -160,6 +172,9 @@ class ExperimentController:
             self.protocol_iti_min,
             self.protocol_iti_max,
             self.protocol_start_delay,
+            self.session_notes,
+            self.protocol_observer,
+            self.protocol_demonstrator,
         )
 
     def export_data_manually(self):
@@ -176,6 +191,12 @@ class ExperimentController:
             self.last_protocol_iti_min,
             self.last_protocol_iti_max,
             self.last_protocol_start_delay,
+            self.session_notes,
+            self.last_session_notes,
+            self.protocol_observer,
+            self.protocol_demonstrator,
+            self.last_protocol_observer,
+            self.last_protocol_demonstrator,
         )
 
     def run_experiment(self):
@@ -183,10 +204,13 @@ class ExperimentController:
         self.stop_event.clear()
         self.experiment_events = []
         self.trial_summaries = []
+        self.session_notes = ""
         self.protocol_snapshot = self.gui.get_protocol_rows()
         self.protocol_iti_min = self.gui.iti_min_var.get()
         self.protocol_iti_max = self.gui.iti_max_var.get()
         self.protocol_start_delay = self.gui.start_delay_var.get().strip() or "0"
+        self.protocol_observer = self.gui.observer_var.get().strip()
+        self.protocol_demonstrator = self.gui.demonstrator_var.get().strip()
 
         try:
             trials = self.gui.get_trials()
@@ -201,6 +225,9 @@ class ExperimentController:
                 self.protocol_iti_min,
                 self.protocol_iti_max,
                 self.protocol_start_delay,
+                "",
+                self.protocol_observer,
+                self.protocol_demonstrator,
             )
 
             self.hardware.camera_on()
@@ -244,13 +271,18 @@ class ExperimentController:
             self.hardware.shock_off()
             self.hardware.camera_off()
             self.append_event("CAMERA_OFF")
+            final_notes = self.gui.pop_experiment_note()
             with self.export_lock:
+                self.session_notes = final_notes
                 self.last_experiment_events = list(self.experiment_events)
                 self.last_trial_summaries = list(self.trial_summaries)
                 self.last_protocol_snapshot = list(self.protocol_snapshot)
                 self.last_protocol_iti_min = self.protocol_iti_min
                 self.last_protocol_iti_max = self.protocol_iti_max
                 self.last_protocol_start_delay = self.protocol_start_delay
+                self.last_session_notes = final_notes
+                self.last_protocol_observer = self.protocol_observer
+                self.last_protocol_demonstrator = self.protocol_demonstrator
                 self.export_manager.stop_auto_export_file(
                     self.protocol_snapshot,
                     self.experiment_events,
@@ -258,6 +290,9 @@ class ExperimentController:
                     self.protocol_iti_min,
                     self.protocol_iti_max,
                     self.protocol_start_delay,
+                    final_notes,
+                    self.protocol_observer,
+                    self.protocol_demonstrator,
                 )
             self.running = False
             self.gui.status.set("Idle")
