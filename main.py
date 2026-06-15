@@ -411,7 +411,13 @@ class ExperimentController:
                 shock_off_timestamp="NA",
             )
 
+        self.save_trial_note(trial_number, trial["tone"])
         self.append_event("TRIAL_END", trial_number, trial["tone"])
+
+    def save_trial_note(self, trial_number, tone):
+        note = self.gui.pop_trial_note()
+        if note:
+            self.append_event("TRIAL_NOTE", trial_number, tone, note)
 
     def run_iti(self, trial_number, total_trials, tone):
         iti = random.uniform(float(self.protocol_iti_min), float(self.protocol_iti_max))

@@ -1,6 +1,7 @@
 import csv
 import os
 import random
+import threading
 import time
 import tkinter as tk
 from datetime import datetime
@@ -344,7 +345,7 @@ class FearConditioningGUI:
         return 0.0 if value == "" else float(value)
 
     def _build(self):
-        self.root.minsize(980, 460)
+        self.root.minsize(1100, 460)
 
         top = tk.Frame(self.root)
         top.pack(fill="x", padx=8, pady=(8, 4))
@@ -377,7 +378,14 @@ class FearConditioningGUI:
         trial_box = tk.Frame(content)
         trial_box.pack(side="left", fill="both", expand=True)
 
-        tk.Label(trial_box, text="Trial Sequence").pack(anchor="w")
+        trial_header = tk.Frame(trial_box)
+        trial_header.pack(fill="x")
+        tk.Label(trial_header, text="Trial Sequence").pack(side="left")
+        tk.Button(
+            trial_header,
+            text="Reset",
+            command=self.reset_trial_sequence,
+        ).pack(side="left", padx=(8, 0))
 
         cols = ["Tone", "ToneDuration", "ShockStart", "ShockDuration"]
         table_frame = tk.Frame(trial_box)
@@ -403,7 +411,7 @@ class FearConditioningGUI:
         self.table.pack(side="left", fill="both", expand=True)
         trial_scrollbar.pack(side="right", fill="y")
         self.table.bind("<Double-1>", self.edit_cell)
-        self.insert_trial_row(("A", 10, 8, 2))
+        self.reset_trial_sequence(update_status=False)
 
         run_btns = tk.Frame(self.root)
         run_btns.pack(pady=(6, 2))
@@ -501,21 +509,31 @@ class FearConditioningGUI:
         ).pack(fill="x")
 
     def _build_trial_watch(self, parent):
+        parent.columnconfigure(0, weight=0)
+        parent.columnconfigure(1, weight=1)
+
+        watch_details = tk.Frame(parent)
+        watch_details.grid(row=0, column=0, sticky="nw", padx=(8, 12), pady=8)
+
         tk.Label(
-            parent,
+            watch_details,
             textvariable=self.watch_trial_var,
             font=("TkDefaultFont", 10, "bold"),
-        ).pack(anchor="w", padx=8, pady=(6, 0))
+        ).pack(anchor="w")
         tk.Label(
-            parent,
+            watch_details,
             textvariable=self.watch_time_var,
             font=("TkDefaultFont", 18, "bold"),
-        ).pack(anchor="w", padx=8, pady=(0, 4))
-        tk.Label(parent, textvariable=self.watch_phase_var).pack(anchor="w", padx=8)
-        tk.Label(parent, textvariable=self.watch_tone_var).pack(anchor="w", padx=8)
-        tk.Label(parent, textvariable=self.watch_shock_var).pack(
-            anchor="w", padx=8, pady=(0, 8)
-        )
+        ).pack(anchor="w", pady=(0, 4))
+        tk.Label(watch_details, textvariable=self.watch_phase_var).pack(anchor="w")
+        tk.Label(watch_details, textvariable=self.watch_tone_var).pack(anchor="w")
+        tk.Label(watch_details, textvariable=self.watch_shock_var).pack(anchor="w")
+
+        notes_area = tk.Frame(parent)
+        notes_area.grid(row=0, column=1, sticky="nsew", padx=(0, 8), pady=8)
+        tk.Label(notes_area, text="Notes on this trial").pack(anchor="w")
+        self.trial_note_text = tk.Text(notes_area, height=4, width=34, wrap="word")
+        self.trial_note_text.pack(fill="both", expand=True)
 
     def build_sequence_from_settings(self):
         if self.controller.is_running():
@@ -609,6 +627,18 @@ class FearConditioningGUI:
         self.replace_trial_rows(rows)
         self.status.set(f"Randomized {len(rows)} trials")
 
+    def reset_trial_sequence(self, update_status=True):
+        if self.controller.is_running():
+            messagebox.showwarning(
+                "Reset Trial Sequence", "Stop the experiment before resetting the table."
+            )
+            return
+
+        self.replace_trial_rows([("A", 10, 8, 2)])
+        self.set_running_trial_row(None)
+        if update_status:
+            self.status.set("Reset trial sequence")
+
     def insert_trial_row(self, values):
         self.table.insert("", "end", values=values)
         self.renumber_trial_rows()
@@ -686,6 +716,25 @@ class FearConditioningGUI:
             self.root.after(0, update)
         except tk.TclError:
             return
+
+    def pop_trial_note(self):
+        result = {"note": ""}
+        done = threading.Event()
+
+        def read_and_clear():
+            try:
+                result["note"] = self.trial_note_text.get("1.0", "end").strip()
+                self.trial_note_text.delete("1.0", "end")
+            finally:
+                done.set()
+
+        try:
+            self.root.after(0, read_and_clear)
+        except tk.TclError:
+            return ""
+
+        done.wait(1)
+        return result["note"]
 
     def format_watch_time(self, seconds):
         seconds = max(0, float(seconds or 0))
