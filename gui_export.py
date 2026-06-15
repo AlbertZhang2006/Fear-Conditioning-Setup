@@ -435,9 +435,9 @@ class FearConditioningGUI:
             text="Reset",
             command=self.reset_trial_sequence,
         ).pack(side="left", padx=(8, 0))
-        tk.Label(trial_header, text="Observer:").pack(side="left", padx=(16, 2))
+        tk.Label(trial_header, text="Observer ID:").pack(side="left", padx=(16, 2))
         tk.Entry(trial_header, textvariable=self.observer_var, width=14).pack(side="left")
-        tk.Label(trial_header, text="Demonstrator:").pack(side="left", padx=(10, 2))
+        tk.Label(trial_header, text="Demonstrator ID:").pack(side="left", padx=(10, 2))
         tk.Entry(trial_header, textvariable=self.demonstrator_var, width=14).pack(side="left")
 
         cols = ["Tone", "ToneDuration", "ShockStart", "ShockDuration"]
@@ -538,8 +538,8 @@ class FearConditioningGUI:
         self.sequence_table.pack(fill="x", padx=6, pady=(6, 4))
         self.sequence_table.bind("<Double-1>", self.edit_sequence_cell)
         self.sequence_table.insert("", "end", values=("A", 1, 10, 8, 2))
-        self.sequence_table.insert("", "end", values=("B", 0, 10, "", 0))
-        self.sequence_table.insert("", "end", values=("C", 0, 10, "", 0))
+        self.sequence_table.insert("", "end", values=("B", 0, 10, "NA", "NA"))
+        self.sequence_table.insert("", "end", values=("C", 0, 10, "NA", "NA"))
 
         tk.Checkbutton(
             parent,
@@ -633,6 +633,10 @@ class FearConditioningGUI:
             tone, trials, tone_duration, shock_start, shock_duration = [
                 str(value).strip() for value in self.sequence_table.item(item)["values"]
             ]
+            if shock_start.upper() == "NA":
+                shock_start = ""
+            if shock_duration.upper() == "NA":
+                shock_duration = ""
 
             try:
                 trial_count = int(trials)
