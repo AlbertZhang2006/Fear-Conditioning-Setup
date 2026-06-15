@@ -651,8 +651,8 @@ class FearConditioningGUI:
             except ValueError as exc:
                 raise ValueError(f"Tone duration for tone {tone} must be a number.") from exc
 
-            if tone_duration_value <= 0:
-                raise ValueError(f"Tone duration for tone {tone} must be greater than 0.")
+            if tone_duration_value < 0:
+                raise ValueError(f"Tone duration for tone {tone} cannot be negative.")
 
             if shock_start:
                 try:
