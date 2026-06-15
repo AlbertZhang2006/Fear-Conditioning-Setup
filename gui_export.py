@@ -488,10 +488,10 @@ class FearConditioningGUI:
         file_btns = tk.Frame(self.root)
         file_btns.pack(pady=2)
 
-        tk.Button(file_btns, text="Save Trial", command=self.save_protocol).pack(
+        tk.Button(file_btns, text="Save Experiment", command=self.save_protocol).pack(
             side="left", padx=2
         )
-        tk.Button(file_btns, text="Load Previous Trial", command=self.load_protocol).pack(
+        tk.Button(file_btns, text="Load Previous Experiment", command=self.load_protocol).pack(
             side="left", padx=2
         )
 
