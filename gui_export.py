@@ -366,6 +366,14 @@ class FearConditioningGUI:
     def set_run_controls(self, experiment_running):
         self.start_btn.config(state="disabled" if experiment_running else "normal")
         self.stop_btn.config(state="normal" if experiment_running else "disabled")
+        self.skip_btn.config(state="normal" if experiment_running else "disabled")
+        self.pause_btn.config(state="normal" if experiment_running else "disabled")
+        self.continue_btn.config(state="disabled")
+
+    def set_paused(self, paused):
+        self.skip_btn.config(state="disabled" if paused else "normal")
+        self.pause_btn.config(state="disabled" if paused else "normal")
+        self.continue_btn.config(state="normal" if paused else "disabled")
 
     def get_trials(self):
         trials = []
@@ -416,7 +424,7 @@ class FearConditioningGUI:
         sequence_box.pack(fill="x")
         self._build_sequence_builder(sequence_box)
 
-        watch_box = ttk.LabelFrame(left_panel, text="Trial Watch")
+        watch_box = ttk.LabelFrame(left_panel, text="Live Monitor")
         watch_box.pack(fill="x", pady=(8, 0))
         self._build_trial_watch(watch_box)
 
@@ -581,6 +589,29 @@ class FearConditioningGUI:
         tk.Label(watch_details, textvariable=self.watch_phase_var).pack(anchor="w")
         tk.Label(watch_details, textvariable=self.watch_tone_var).pack(anchor="w")
         tk.Label(watch_details, textvariable=self.watch_shock_var).pack(anchor="w")
+        btn_row = tk.Frame(watch_details)
+        btn_row.pack(anchor="w", pady=(6, 0))
+        self.skip_btn = tk.Button(
+            btn_row,
+            text="Skip Current Event",
+            command=self.controller.skip_phase,
+            state="disabled",
+        )
+        self.skip_btn.pack(side="left", padx=(0, 4))
+        self.pause_btn = tk.Button(
+            btn_row,
+            text="Pause",
+            command=self.controller.pause,
+            state="disabled",
+        )
+        self.pause_btn.pack(side="left", padx=(0, 4))
+        self.continue_btn = tk.Button(
+            btn_row,
+            text="Continue",
+            command=self.controller.resume,
+            state="disabled",
+        )
+        self.continue_btn.pack(side="left")
 
         notes_area = tk.Frame(parent)
         notes_area.grid(row=0, column=1, sticky="nsew", padx=(0, 8), pady=8)

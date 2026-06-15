@@ -74,6 +74,8 @@ class ExperimentController:
         self.hardware = HardwareController()
         self.audio = AudioController(TONE_FILES)
         self.stop_event = threading.Event()
+        self.skip_event = threading.Event()
+        self.pause_event = threading.Event()
         self.running = False
         self.gui = None
         self.export_manager = None
@@ -114,6 +116,34 @@ class ExperimentController:
 
     def stop(self):
         self.stop_event.set()
+
+    def skip_phase(self):
+        self.skip_event.set()
+
+    def pause(self):
+        self.pause_event.set()
+        try:
+            self.gui.root.after(0, lambda: self.gui.set_paused(True))
+        except Exception:
+            pass
+
+    def resume(self):
+        self.pause_event.clear()
+        try:
+            self.gui.root.after(0, lambda: self.gui.set_paused(False))
+        except Exception:
+            pass
+
+    def _handle_pause(self, trial="", tone=""):
+        """Call inside a loop when pause_event is set. Returns pause duration in seconds."""
+        self.append_event("PAUSE", trial, tone)
+        pause_start = time.time()
+        while self.pause_event.is_set() and not self.stop_event.is_set():
+            time.sleep(0.05)
+        duration = time.time() - pause_start
+        if not self.stop_event.is_set():
+            self.append_event("RESUME", trial, tone)
+        return duration
 
     def append_event(self, event, trial="", tone="", detail=""):
         ts, iso = timestamp_strings()
@@ -202,6 +232,8 @@ class ExperimentController:
     def run_experiment(self):
         self.running = True
         self.stop_event.clear()
+        self.pause_event.clear()
+        self.skip_event.clear()
         self.experiment_events = []
         self.trial_summaries = []
         self.session_notes = ""
@@ -237,8 +269,12 @@ class ExperimentController:
                 self.append_event("START_DELAY", detail=f"seconds={start_delay}")
                 self.gui.status.set(f"Start delay {start_delay:.1f}s")
                 delay_start = time.time()
+                paused_total = 0.0
                 while not self.stop_event.is_set():
-                    elapsed = time.time() - delay_start
+                    if self.pause_event.is_set():
+                        paused_total += self._handle_pause()
+                        continue
+                    elapsed = time.time() - delay_start - paused_total
                     self.gui.set_trial_watch(
                         phase="Start delay",
                         elapsed=min(elapsed, start_delay),
@@ -247,6 +283,10 @@ class ExperimentController:
                     )
                     remaining = start_delay - elapsed
                     if remaining <= 0:
+                        break
+                    if self.skip_event.is_set():
+                        self.skip_event.clear()
+                        self.append_event("SKIP", detail="phase=start_delay")
                         break
                     self.stop_event.wait(min(0.1, remaining))
                 if self.stop_event.is_set():
@@ -343,6 +383,46 @@ class ExperimentController:
 
         while not self.stop_event.is_set() and not (tone_stopped and shock_stopped):
             now = time.time()
+
+            if self.pause_event.is_set():
+                tone_was_playing = not tone_stopped
+                shock_was_active = shock_started and not shock_stopped
+                if tone_was_playing:
+                    self.audio.tone_off()
+                if shock_was_active:
+                    self.hardware.shock_off()
+                pause_dur = self._handle_pause(trial_number, trial["tone"])
+                if not self.stop_event.is_set():
+                    tone_stop_time += pause_dur
+                    if shock_start_time is not None:
+                        shock_start_time += pause_dur
+                        shock_stop_time += pause_dur
+                    if tone_was_playing:
+                        self.audio.tone_on(trial["tone"])
+                    if shock_was_active:
+                        self.hardware.shock_on()
+                continue
+
+            if self.skip_event.is_set():
+                self.skip_event.clear()
+                if not tone_stopped:
+                    self.audio.tone_off()
+                    tone_off_event = self.append_event("TONE_OFF", trial_number, trial["tone"], "skipped")
+                    self.update_trial_summary(trial_number, tone_off_timestamp=tone_off_event["timestamp"])
+                    tone_stopped = True
+                    self.append_event("SKIP", trial_number, trial["tone"], "phase=tone")
+                elif shock_started and not shock_stopped:
+                    self.hardware.shock_off()
+                    shock_off_event = self.append_event("SHOCK_OFF", trial_number, trial["tone"], "skipped")
+                    self.update_trial_summary(trial_number, shock_off_timestamp=shock_off_event["timestamp"])
+                    shock_stopped = True
+                    self.append_event("SKIP", trial_number, trial["tone"], "phase=shock")
+                elif shock_start_time is not None and not shock_started:
+                    shock_stopped = True
+                    self.update_trial_summary(trial_number, shock=0, shock_on_timestamp="NA", shock_off_timestamp="NA")
+                    self.append_event("SKIP", trial_number, trial["tone"], "phase=pre_shock")
+                continue
+
             if now - last_watch_update >= 0.1:
                 self.gui.set_trial_watch(
                     trial_number=trial_number,
@@ -464,8 +544,12 @@ class ExperimentController:
             trial_number, iti_start_timestamp=iti_start_event["timestamp"]
         )
         iti_start = time.time()
+        paused_total = 0.0
         while not self.stop_event.is_set():
-            elapsed = time.time() - iti_start
+            if self.pause_event.is_set():
+                paused_total += self._handle_pause(trial_number, tone)
+                continue
+            elapsed = time.time() - iti_start - paused_total
             self.gui.set_trial_watch(
                 trial_number=trial_number,
                 total_trials=total_trials,
@@ -476,6 +560,10 @@ class ExperimentController:
             )
             remaining = iti - elapsed
             if remaining <= 0:
+                break
+            if self.skip_event.is_set():
+                self.skip_event.clear()
+                self.append_event("SKIP", trial_number, tone, "phase=iti")
                 break
             self.stop_event.wait(min(0.1, remaining))
         iti_detail = "stopped early" if self.stop_event.is_set() else ""
