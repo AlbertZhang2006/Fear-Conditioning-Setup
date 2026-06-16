@@ -74,6 +74,9 @@ class ExportManager:
         iti_min_value,
         iti_max_value,
         start_delay_value,
+        notes="",
+        observer="",
+        demonstrator="",
     ):
         if not self.auto_export_folder:
             self.auto_experiment_summary_file = None
@@ -98,6 +101,9 @@ class ExportManager:
             iti_min_value,
             iti_max_value,
             start_delay_value,
+            notes,
+            observer,
+            demonstrator,
         )
 
     def stop_auto_export_file(
@@ -108,6 +114,9 @@ class ExportManager:
         iti_min_value,
         iti_max_value,
         start_delay_value,
+        notes="",
+        observer="",
+        demonstrator="",
     ):
         if (
             self.auto_export_active
@@ -123,6 +132,9 @@ class ExportManager:
                 iti_min_value,
                 iti_max_value,
                 start_delay_value,
+                notes,
+                observer,
+                demonstrator,
             )
         self.auto_export_active = False
 
@@ -134,6 +146,9 @@ class ExportManager:
         iti_min_value,
         iti_max_value,
         start_delay_value,
+        notes="",
+        observer="",
+        demonstrator="",
     ):
         if self.auto_export_active and self.auto_experiment_summary_file and self.auto_trial_summary_file:
             self.write_export_files(
@@ -145,6 +160,9 @@ class ExportManager:
                 iti_min_value,
                 iti_max_value,
                 start_delay_value,
+                notes,
+                observer,
+                demonstrator,
             )
 
     def export_data_manually(
@@ -161,6 +179,12 @@ class ExportManager:
         last_iti_min_value,
         last_iti_max_value,
         last_start_delay_value,
+        notes="",
+        last_notes="",
+        observer="",
+        demonstrator="",
+        last_observer="",
+        last_demonstrator="",
     ):
         file = filedialog.asksaveasfilename(
             defaultextension=".csv",
@@ -183,6 +207,9 @@ class ExportManager:
                 iti_min_value,
                 iti_max_value,
                 start_delay_value,
+                notes,
+                observer,
+                demonstrator,
             )
             self.status_var.set("Exported experiment summary and trial data table")
         elif last_events:
@@ -195,6 +222,9 @@ class ExportManager:
                 last_iti_min_value,
                 last_iti_max_value,
                 last_start_delay_value,
+                last_notes,
+                last_observer,
+                last_demonstrator,
             )
             self.status_var.set("Exported experiment summary and trial data table")
         else:
@@ -210,6 +240,9 @@ class ExportManager:
         iti_min_value,
         iti_max_value,
         start_delay_value,
+        notes="",
+        observer="",
+        demonstrator="",
     ):
         self.write_experiment_summary_file(
             experiment_summary_file,
@@ -218,40 +251,76 @@ class ExportManager:
             iti_min_value,
             iti_max_value,
             start_delay_value,
+            notes,
+            observer,
+            demonstrator,
         )
         self.write_trial_summary_file(trial_summary_file, events, summaries)
 
     def write_experiment_summary_file(
-        self, file, protocol_rows, events, iti_min_value, iti_max_value, start_delay_value
+        self, file, protocol_rows, events, iti_min_value, iti_max_value, start_delay_value,
+        notes="", observer="", demonstrator=""
     ):
         with open(file, "w", newline="") as f:
             w = csv.writer(f)
 
-            w.writerow(["ExportCreated", datetime.now().isoformat(timespec="milliseconds")])
-            w.writerow(["ITI_MIN", iti_min_value])
-            w.writerow(["ITI_MAX", iti_max_value])
-            w.writerow(["START_DELAY_SECONDS", start_delay_value])
-            w.writerow([])
+            left_section = [
+                ["ExportCreated", datetime.now().isoformat(timespec="milliseconds")],
+                ["Observer", observer],
+                ["Demonstrator", demonstrator],
+                ["ITI_MIN", iti_min_value],
+                ["ITI_MAX", iti_max_value],
+                ["START_DELAY_SECONDS", start_delay_value],
+                [],
+                ["ExperimentNotes"],
+                [notes],
+            ]
 
-            w.writerow(["ProtocolTable"])
-            w.writerow(["Trial", "Tone", "ToneDuration", "ShockStart", "ShockDuration"])
+            proto_section = [
+                ["ProtocolTable"],
+                ["Trial", "Tone", "ToneDuration", "ShockStart", "ShockDuration"],
+            ]
             for i, row in enumerate(protocol_rows, start=1):
-                w.writerow([i] + list(row))
-            w.writerow([])
+                proto_section.append([i] + list(row))
 
-            w.writerow(["EventLog"])
-            w.writerow(["DateTime", "Timestamp", "Event", "Trial", "Tone", "Detail"])
-            for event in events:
-                w.writerow(
-                    [
-                        event["datetime"],
-                        f"{event['timestamp']:.6f}",
-                        event["event"],
-                        event["trial"],
-                        event["tone"],
-                        event["detail"],
-                    ]
-                )
+            # EventLog starts 3 rows below the ExperimentNotes label (index 7 + 3 = 10)
+            PROTO_COL = 7   # column H (0-indexed)
+            EVENT_LOG_ROW = 10  # row index where EventLog label appears
+            EVENT_LOG_COLS = ["DateTime", "Timestamp", "Event", "Trial", "Tone", "Trial Note", "Detail"]
+            event_data_start = EVENT_LOG_ROW + 2  # label row + header row
+
+            total_rows = max(
+                len(proto_section),
+                event_data_start + len(events),
+            )
+            NUM_COLS = PROTO_COL + 6  # enough for both sides
+            grid = [[""] * NUM_COLS for _ in range(total_rows)]
+
+            for r, row_data in enumerate(left_section):
+                for c, val in enumerate(row_data):
+                    grid[r][c] = val
+
+            for r, row_data in enumerate(proto_section):
+                for c, val in enumerate(row_data):
+                    grid[r][PROTO_COL + c] = val
+
+            grid[EVENT_LOG_ROW][0] = "EventLog"
+            for c, h in enumerate(EVENT_LOG_COLS):
+                grid[EVENT_LOG_ROW + 1][c] = h
+            for r, event in enumerate(events, start=event_data_start):
+                grid[r][0] = event["datetime"]
+                grid[r][1] = f"{event['timestamp']:.6f}"
+                grid[r][2] = event["event"]
+                grid[r][3] = event["trial"]
+                grid[r][4] = event["tone"]
+                if event["event"] == "TRIAL_NOTE":
+                    grid[r][5] = event["detail"]
+                else:
+                    grid[r][6] = event["detail"]
+
+            for row in grid:
+                last = max((i for i, v in enumerate(row) if v != ""), default=-1)
+                w.writerow(row[:last + 1] if last >= 0 else [])
 
     def write_trial_summary_file(self, file, events, summaries):
         start_event = next((event for event in events if event["event"] == "START"), None)
@@ -309,6 +378,8 @@ class FearConditioningGUI:
         self.iti_max_var = tk.StringVar(value="3")
         self.start_delay_var = tk.StringVar(value="0")
         self.sequence_randomize_var = tk.BooleanVar(value=False)
+        self.observer_var = tk.StringVar()
+        self.demonstrator_var = tk.StringVar()
         self.watch_trial_var = tk.StringVar(value="Trial -- / --")
         self.watch_time_var = tk.StringVar(value="00:00.0")
         self.watch_phase_var = tk.StringVar(value="Idle")
@@ -330,6 +401,9 @@ class FearConditioningGUI:
             lambda: (
                 self.start_btn.config(state="disabled" if experiment_running else "normal"),
                 self.stop_btn.config(state="normal" if experiment_running else "disabled"),
+                self.skip_btn.config(state="normal" if experiment_running else "disabled"),
+                self.pause_btn.config(state="normal" if experiment_running else "disabled"),
+                self.continue_btn.config(state="disabled"),
             )
         )
 
@@ -360,6 +434,15 @@ class FearConditioningGUI:
             self.root.after(50, self._drain_ui_queue)
         except tk.TclError:
             return
+
+    def set_paused(self, paused):
+        self.run_on_ui_thread(
+            lambda: (
+                self.skip_btn.config(state="disabled" if paused else "normal"),
+                self.pause_btn.config(state="disabled" if paused else "normal"),
+                self.continue_btn.config(state="normal" if paused else "disabled"),
+            )
+        )
 
     def get_trials(self):
         trials = []
@@ -410,9 +493,13 @@ class FearConditioningGUI:
         sequence_box.pack(fill="x")
         self._build_sequence_builder(sequence_box)
 
-        watch_box = ttk.LabelFrame(left_panel, text="Trial Watch")
+        watch_box = ttk.LabelFrame(left_panel, text="Live Monitor")
         watch_box.pack(fill="x", pady=(8, 0))
         self._build_trial_watch(watch_box)
+
+        exp_notes_box = ttk.LabelFrame(left_panel, text="Experiment Notes")
+        exp_notes_box.pack(fill="both", expand=True, pady=(8, 0))
+        self._build_experiment_notes(exp_notes_box)
 
         trial_box = tk.Frame(content)
         trial_box.pack(side="left", fill="both", expand=True)
@@ -425,6 +512,10 @@ class FearConditioningGUI:
             text="Reset",
             command=self.reset_trial_sequence,
         ).pack(side="left", padx=(8, 0))
+        tk.Label(trial_header, text="Observer ID:").pack(side="left", padx=(16, 2))
+        tk.Entry(trial_header, textvariable=self.observer_var, width=14).pack(side="left")
+        tk.Label(trial_header, text="Demonstrator ID:").pack(side="left", padx=(10, 2))
+        tk.Entry(trial_header, textvariable=self.demonstrator_var, width=14).pack(side="left")
 
         cols = ["Tone", "ToneDuration", "ShockStart", "ShockDuration"]
         table_frame = tk.Frame(trial_box)
@@ -460,24 +551,24 @@ class FearConditioningGUI:
 
         self.start_btn = tk.Button(
             run_btns,
-            text="Start",
+            text="Start Experiment",
             command=self.controller.start,
             font=("TkDefaultFont", 9, "bold"),
         )
         self.start_btn.pack(side="left", padx=2)
 
         self.stop_btn = tk.Button(
-            run_btns, text="Stop", command=self.controller.stop, state="disabled"
+            run_btns, text="Stop Experiment", command=self.controller.stop, state="disabled"
         )
         self.stop_btn.pack(side="left", padx=2)
 
         file_btns = tk.Frame(self.root)
         file_btns.pack(pady=2)
 
-        tk.Button(file_btns, text="Save Trial", command=self.save_protocol).pack(
+        tk.Button(file_btns, text="Save Experiment", command=self.save_protocol).pack(
             side="left", padx=2
         )
-        tk.Button(file_btns, text="Load Previous Trial", command=self.load_protocol).pack(
+        tk.Button(file_btns, text="Load Previous Experiment", command=self.load_protocol).pack(
             side="left", padx=2
         )
 
@@ -507,11 +598,11 @@ class FearConditioningGUI:
             "ShockDuration": "Shock Dur.",
         }
         widths = {
-            "Tone": 52,
-            "Trials": 58,
-            "ToneDuration": 82,
-            "ShockStart": 88,
-            "ShockDuration": 82,
+            "Tone": 42,
+            "Trials": 46,
+            "ToneDuration": 70,
+            "ShockStart": 74,
+            "ShockDuration": 70,
         }
 
         self.sequence_table = ttk.Treeview(
@@ -524,8 +615,8 @@ class FearConditioningGUI:
         self.sequence_table.pack(fill="x", padx=6, pady=(6, 4))
         self.sequence_table.bind("<Double-1>", self.edit_sequence_cell)
         self.sequence_table.insert("", "end", values=("A", 1, 10, 8, 2))
-        self.sequence_table.insert("", "end", values=("B", 0, 10, "", 0))
-        self.sequence_table.insert("", "end", values=("C", 0, 10, "", 0))
+        self.sequence_table.insert("", "end", values=("B", 0, 10, "NA", "NA"))
+        self.sequence_table.insert("", "end", values=("C", 0, 10, "NA", "NA"))
 
         tk.Checkbutton(
             parent,
@@ -567,12 +658,49 @@ class FearConditioningGUI:
         tk.Label(watch_details, textvariable=self.watch_phase_var).pack(anchor="w")
         tk.Label(watch_details, textvariable=self.watch_tone_var).pack(anchor="w")
         tk.Label(watch_details, textvariable=self.watch_shock_var).pack(anchor="w")
+        btn_row = tk.Frame(watch_details)
+        btn_row.pack(anchor="w", pady=(6, 0))
+        self.skip_btn = tk.Button(
+            btn_row,
+            text="Skip Current Event",
+            command=self.controller.skip_phase,
+            state="disabled",
+        )
+        self.skip_btn.pack(side="left", padx=(0, 4))
+        self.pause_btn = tk.Button(
+            btn_row,
+            text="Pause",
+            command=self.controller.pause,
+            state="disabled",
+        )
+        self.pause_btn.pack(side="left", padx=(0, 4))
+        self.continue_btn = tk.Button(
+            btn_row,
+            text="Continue",
+            command=self.controller.resume,
+            state="disabled",
+        )
+        self.continue_btn.pack(side="left")
 
         notes_area = tk.Frame(parent)
         notes_area.grid(row=0, column=1, sticky="nsew", padx=(0, 8), pady=8)
         tk.Label(notes_area, text="Notes on this trial").pack(anchor="w")
         self.trial_note_text = tk.Text(notes_area, height=4, width=34, wrap="word")
         self.trial_note_text.pack(fill="both", expand=True)
+
+    def _build_experiment_notes(self, parent):
+        self.experiment_note_text = tk.Text(parent, height=5, wrap="word")
+        self.experiment_note_text.pack(fill="both", expand=True, padx=6, pady=(6, 2))
+        tk.Button(
+            parent,
+            text="Save & Reset Experiment Notes",
+            command=self._on_save_reset_experiment_notes,
+        ).pack(fill="x", padx=6, pady=(0, 6))
+
+    def _on_save_reset_experiment_notes(self):
+        note = self.experiment_note_text.get("1.0", "end").strip()
+        self.experiment_note_text.delete("1.0", "end")
+        self.controller.save_and_reset_experiment_notes(note)
 
     def build_sequence_from_settings(self):
         if self.controller.is_running():
@@ -605,6 +733,10 @@ class FearConditioningGUI:
             tone, trials, tone_duration, shock_start, shock_duration = [
                 str(value).strip() for value in self.sequence_table.item(item)["values"]
             ]
+            if shock_start.upper() == "NA":
+                shock_start = ""
+            if shock_duration.upper() == "NA":
+                shock_duration = ""
 
             try:
                 trial_count = int(trials)
@@ -619,8 +751,8 @@ class FearConditioningGUI:
             except ValueError as exc:
                 raise ValueError(f"Tone duration for tone {tone} must be a number.") from exc
 
-            if tone_duration_value <= 0:
-                raise ValueError(f"Tone duration for tone {tone} must be greater than 0.")
+            if tone_duration_value < 0:
+                raise ValueError(f"Tone duration for tone {tone} cannot be negative.")
 
             if shock_start:
                 try:
@@ -815,6 +947,25 @@ class FearConditioningGUI:
         done.wait(1)
         return result["note"]
 
+    def pop_experiment_note(self):
+        result = {"note": ""}
+        done = threading.Event()
+
+        def read_and_clear():
+            try:
+                result["note"] = self.experiment_note_text.get("1.0", "end").strip()
+                self.experiment_note_text.delete("1.0", "end")
+            finally:
+                done.set()
+
+        try:
+            self.root.after(0, read_and_clear)
+        except tk.TclError:
+            return ""
+
+        done.wait(1)
+        return result["note"]
+
     def format_watch_time(self, seconds):
         seconds = max(0, float(seconds or 0))
         minutes = int(seconds // 60)
@@ -930,9 +1081,17 @@ class FearConditioningGUI:
             w.writerow(["ITI_MIN", self.iti_min_var.get()])
             w.writerow(["ITI_MAX", self.iti_max_var.get()])
             w.writerow(["START_DELAY_SECONDS", self.start_delay_var.get().strip() or "0"])
+            w.writerow(["SEQUENCE_RANDOMIZE", str(self.sequence_randomize_var.get())])
+            w.writerow(["OBSERVER_ID", self.observer_var.get()])
+            w.writerow(["DEMONSTRATOR_ID", self.demonstrator_var.get()])
             w.writerow([])
-            w.writerow(["Tone", "ToneDuration", "ShockStart", "ShockDuration"])
 
+            w.writerow(["SequenceBuilder"])
+            for item in self.sequence_table.get_children():
+                w.writerow(self.sequence_table.item(item)["values"])
+            w.writerow([])
+
+            w.writerow(["TrialSequence"])
             for row in self.table.get_children():
                 w.writerow(self.table.item(row)["values"])
 
@@ -941,23 +1100,55 @@ class FearConditioningGUI:
         if not file:
             return
 
-        for row in self.table.get_children():
-            self.table.delete(row)
-
         with open(file) as f:
-            reader = csv.reader(f)
-            rows = list(reader)
+            rows = list(csv.reader(f))
 
-        metadata_end = rows.index([])
-        metadata = {
-            row[0]: row[1]
-            for row in rows[:metadata_end]
-            if len(row) >= 2
-        }
+        metadata = {}
+        seq_builder_rows = None
+        trial_rows = []
+        current_section = None
+
+        for row in rows:
+            if not any(cell.strip() for cell in row):
+                current_section = None
+                continue
+
+            if len(row) == 1:
+                marker = row[0].strip()
+                if marker == "SequenceBuilder":
+                    current_section = "seq"
+                    seq_builder_rows = []
+                    continue
+                elif marker == "TrialSequence":
+                    current_section = "trial"
+                    continue
+
+            if current_section == "seq":
+                seq_builder_rows.append(row)
+            elif current_section == "trial":
+                trial_rows.append(row)
+            else:
+                if len(row) >= 2:
+                    key, val = row[0].strip(), row[1].strip()
+                    if key == "Tone" and val == "ToneDuration":
+                        current_section = "trial"
+                    else:
+                        metadata[key] = val
 
         self.iti_min_var.set(metadata.get("ITI_MIN", "2"))
         self.iti_max_var.set(metadata.get("ITI_MAX", "3"))
         self.start_delay_var.set(metadata.get("START_DELAY_SECONDS", "0"))
+        self.sequence_randomize_var.set(
+            metadata.get("SEQUENCE_RANDOMIZE", "False").lower() == "true"
+        )
+        self.observer_var.set(metadata.get("OBSERVER_ID", ""))
+        self.demonstrator_var.set(metadata.get("DEMONSTRATOR_ID", ""))
 
-        start_idx = metadata_end + 2
-        self.replace_trial_rows(rows[start_idx:])
+        if seq_builder_rows is not None:
+            for item in self.sequence_table.get_children():
+                self.sequence_table.delete(item)
+            for row in seq_builder_rows:
+                if len(row) >= 5:
+                    self.sequence_table.insert("", "end", values=row[:5])
+
+        self.replace_trial_rows(trial_rows)
