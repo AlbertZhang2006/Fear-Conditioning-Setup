@@ -103,8 +103,25 @@ class ExperimentController:
     def start(self):
         if self.running:
             return
+
+        try:
+            run_config = {
+                "trials": self.gui.get_trials(),
+                "protocol_snapshot": self.gui.get_protocol_rows(),
+                "iti_min": self.gui.iti_min_var.get(),
+                "iti_max": self.gui.iti_max_var.get(),
+                "start_delay": self.gui.start_delay_var.get().strip() or "0",
+            }
+            float(run_config["iti_min"])
+            float(run_config["iti_max"])
+            float(run_config["start_delay"])
+        except ValueError as exc:
+            self.gui.set_status(f"Check experiment settings: {exc}")
+            return
+
+        self.running = True
         self.gui.set_run_controls(True)
-        threading.Thread(target=self.run_experiment, daemon=True).start()
+        threading.Thread(target=self.run_experiment, args=(run_config,), daemon=True).start()
 
     def stop(self):
         self.stop_event.set()
@@ -178,21 +195,20 @@ class ExperimentController:
             self.last_protocol_start_delay,
         )
 
-    def run_experiment(self):
-        self.running = True
+    def run_experiment(self, run_config):
         self.stop_event.clear()
         self.experiment_events = []
         self.trial_summaries = []
-        self.protocol_snapshot = self.gui.get_protocol_rows()
-        self.protocol_iti_min = self.gui.iti_min_var.get()
-        self.protocol_iti_max = self.gui.iti_max_var.get()
-        self.protocol_start_delay = self.gui.start_delay_var.get().strip() or "0"
+        self.protocol_snapshot = run_config["protocol_snapshot"]
+        self.protocol_iti_min = run_config["iti_min"]
+        self.protocol_iti_max = run_config["iti_max"]
+        self.protocol_start_delay = run_config["start_delay"]
 
         try:
-            trials = self.gui.get_trials()
+            trials = run_config["trials"]
             iti_min = float(self.protocol_iti_min)
             iti_max = float(self.protocol_iti_max)
-            start_delay = self.gui.get_start_delay_seconds()
+            start_delay = float(self.protocol_start_delay)
 
             self.export_manager.start_auto_export_file(
                 self.protocol_snapshot,
@@ -208,7 +224,7 @@ class ExperimentController:
 
             if start_delay > 0:
                 self.append_event("START_DELAY", detail=f"seconds={start_delay}")
-                self.gui.status.set(f"Start delay {start_delay:.1f}s")
+                self.gui.set_status(f"Start delay {start_delay:.1f}s")
                 delay_start = time.time()
                 while not self.stop_event.is_set():
                     elapsed = time.time() - delay_start
@@ -260,12 +276,12 @@ class ExperimentController:
                     self.protocol_start_delay,
                 )
             self.running = False
-            self.gui.status.set("Idle")
+            self.gui.set_status("Idle")
             self.gui.set_trial_watch(phase="Idle", elapsed=0)
             self.gui.set_run_controls(False)
 
     def run_trial(self, trial_number, total_trials, trial):
-        self.gui.status.set(f"Trial {trial_number}/{total_trials}")
+        self.gui.set_status(f"Trial {trial_number}/{total_trials}")
 
         start = time.time()
         tone_stop_time = start + trial["tone_duration"]
@@ -421,7 +437,7 @@ class ExperimentController:
 
     def run_iti(self, trial_number, total_trials, tone):
         iti = random.uniform(float(self.protocol_iti_min), float(self.protocol_iti_max))
-        self.gui.status.set(f"ITI {iti:.1f}s")
+        self.gui.set_status(f"ITI {iti:.1f}s")
         iti_start_event = self.append_event(
             "ITI_START", trial_number, tone, f"seconds={iti:.6f}"
         )

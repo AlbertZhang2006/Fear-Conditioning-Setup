@@ -1,5 +1,6 @@
 import csv
 import os
+import queue
 import random
 import threading
 import time
@@ -299,6 +300,8 @@ class FearConditioningGUI:
         self.controller = controller
         self.root = tk.Tk()
         self.root.title("Fear Conditioning Controller")
+        self._ui_thread_id = threading.get_ident()
+        self._ui_queue = queue.Queue()
 
         self.status = tk.StringVar(value="Idle")
         self.export_manager = ExportManager(self.status, self.controller.is_running)
@@ -311,16 +314,52 @@ class FearConditioningGUI:
         self.watch_phase_var = tk.StringVar(value="Idle")
         self.watch_tone_var = tk.StringVar(value="Tone: --")
         self.watch_shock_var = tk.StringVar(value="Shock: --")
+        self._trial_watch_pending = False
+        self._trial_watch_latest = None
+        self._running_trial_number = None
 
         self._build()
+        self.root.after(50, self._drain_ui_queue)
 
     def run(self):
         self.root.after(2000, self.export_manager.choose_auto_export_folder)
         self.root.mainloop()
 
     def set_run_controls(self, experiment_running):
-        self.start_btn.config(state="disabled" if experiment_running else "normal")
-        self.stop_btn.config(state="normal" if experiment_running else "disabled")
+        self.run_on_ui_thread(
+            lambda: (
+                self.start_btn.config(state="disabled" if experiment_running else "normal"),
+                self.stop_btn.config(state="normal" if experiment_running else "disabled"),
+            )
+        )
+
+    def set_status(self, text):
+        self.run_on_ui_thread(lambda: self.status.set(text))
+
+    def run_on_ui_thread(self, callback):
+        if threading.get_ident() == self._ui_thread_id:
+            try:
+                callback()
+            except tk.TclError:
+                return
+        else:
+            self._ui_queue.put(callback)
+
+    def _drain_ui_queue(self):
+        try:
+            while True:
+                callback = self._ui_queue.get_nowait()
+                try:
+                    callback()
+                except tk.TclError:
+                    return
+        except queue.Empty:
+            pass
+
+        try:
+            self.root.after(50, self._drain_ui_queue)
+        except tk.TclError:
+            return
 
     def get_trials(self):
         trials = []
@@ -656,10 +695,12 @@ class FearConditioningGUI:
             self.table.item(row, text=str(index))
 
     def set_running_trial_row(self, trial_number):
-        for row in self.table.get_children():
-            self.table.item(row, tags=())
-
         if trial_number in ("", None):
+            if self._running_trial_number is None:
+                return
+            for row in self.table.get_children():
+                self.table.item(row, tags=())
+            self._running_trial_number = None
             return
 
         try:
@@ -667,11 +708,20 @@ class FearConditioningGUI:
         except (TypeError, ValueError):
             return
 
+        if self._running_trial_number == trial_index + 1:
+            return
+
         rows = self.table.get_children()
+        if self._running_trial_number is not None:
+            previous_index = self._running_trial_number - 1
+            if 0 <= previous_index < len(rows):
+                self.table.item(rows[previous_index], tags=())
+
         if 0 <= trial_index < len(rows):
             current_row = rows[trial_index]
             self.table.item(current_row, tags=("running",))
             self.table.see(current_row)
+            self._running_trial_number = trial_index + 1
 
     def set_trial_watch(
         self,
@@ -685,7 +735,35 @@ class FearConditioningGUI:
         shock_duration=None,
         mark_trial=True,
     ):
+        self._trial_watch_latest = {
+            "trial_number": trial_number,
+            "total_trials": total_trials,
+            "tone": tone,
+            "phase": phase,
+            "elapsed": elapsed,
+            "total_seconds": total_seconds,
+            "shock_start": shock_start,
+            "shock_duration": shock_duration,
+            "mark_trial": mark_trial,
+        }
+        if self._trial_watch_pending:
+            return
+
+        self._trial_watch_pending = True
+
         def update():
+            self._trial_watch_pending = False
+            state = self._trial_watch_latest or {}
+            trial_number = state.get("trial_number")
+            total_trials = state.get("total_trials")
+            tone = state.get("tone", "")
+            phase = state.get("phase", "Idle")
+            elapsed = state.get("elapsed", 0)
+            total_seconds = state.get("total_seconds")
+            shock_start = state.get("shock_start")
+            shock_duration = state.get("shock_duration")
+            mark_trial = state.get("mark_trial", True)
+
             if trial_number is None or total_trials is None:
                 self.watch_trial_var.set("Trial -- / --")
             else:
@@ -713,8 +791,9 @@ class FearConditioningGUI:
                 self.set_running_trial_row(trial_number)
 
         try:
-            self.root.after(0, update)
+            self.run_on_ui_thread(update)
         except tk.TclError:
+            self._trial_watch_pending = False
             return
 
     def pop_trial_note(self):
@@ -729,7 +808,7 @@ class FearConditioningGUI:
                 done.set()
 
         try:
-            self.root.after(0, read_and_clear)
+            self.run_on_ui_thread(read_and_clear)
         except tk.TclError:
             return ""
 
