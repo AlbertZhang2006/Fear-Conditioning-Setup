@@ -382,6 +382,9 @@ class FearConditioningGUI:
         self.watch_phase_var = tk.StringVar(value="Idle")
         self.watch_tone_var = tk.StringVar(value="Tone: --")
         self.watch_shock_var = tk.StringVar(value="Shock: --")
+        self.iti_total_var = tk.StringVar(value="--")
+        self.trial_total_length_var = tk.StringVar(value="--")
+        self.experiment_length_var = tk.StringVar(value="--")
 
         self._build()
 
@@ -426,25 +429,27 @@ class FearConditioningGUI:
     def _build(self):
         self.root.minsize(1100, 460)
 
-        top = tk.Frame(self.root)
-        top.pack(fill="x", padx=8, pady=(8, 4))
-
-        tk.Label(top, text="ITI Min").grid(row=0, column=0)
-        tk.Entry(top, textvariable=self.iti_min_var, width=6).grid(row=0, column=1)
-
-        tk.Label(top, text="ITI Max").grid(row=0, column=2)
-        tk.Entry(top, textvariable=self.iti_max_var, width=6).grid(row=0, column=3)
-
-        tk.Label(top, text="Time delay before experiment begins (sec)").grid(
-            row=1, column=0, columnspan=3, sticky="e"
-        )
-        tk.Entry(top, textvariable=self.start_delay_var, width=6).grid(row=1, column=3)
-
         content = tk.Frame(self.root)
-        content.pack(fill="both", expand=True, padx=8, pady=4)
+        content.pack(fill="both", expand=True, padx=8, pady=(8, 4))
 
+        # ── LEFT PANEL ──────────────────────────────────────────────────────
         left_panel = tk.Frame(content)
         left_panel.pack(side="left", fill="y", padx=(0, 8))
+
+        iti_frame = tk.Frame(left_panel)
+        iti_frame.pack(fill="x", pady=(0, 4))
+        tk.Label(iti_frame, text="ITI Min").grid(row=0, column=0, sticky="w")
+        tk.Entry(iti_frame, textvariable=self.iti_min_var, width=6).grid(row=0, column=1, padx=(2, 8))
+        tk.Label(iti_frame, text="ITI Max").grid(row=0, column=2, sticky="w")
+        tk.Entry(iti_frame, textvariable=self.iti_max_var, width=6).grid(row=0, column=3, padx=(2, 0))
+        tk.Label(iti_frame, text="Time delay before experiment begins (sec)").grid(
+            row=1, column=0, columnspan=3, sticky="e", pady=(2, 0)
+        )
+        tk.Entry(iti_frame, textvariable=self.start_delay_var, width=6).grid(row=1, column=3, pady=(2, 0))
+
+        self.iti_min_var.trace_add("write", self._update_time_trackers)
+        self.iti_max_var.trace_add("write", self._update_time_trackers)
+        self.start_delay_var.trace_add("write", self._update_time_trackers)
 
         sequence_box = ttk.LabelFrame(left_panel, text="Sequence Builder")
         sequence_box.pack(fill="x")
@@ -458,8 +463,18 @@ class FearConditioningGUI:
         exp_notes_box.pack(fill="both", expand=True, pady=(8, 0))
         self._build_experiment_notes(exp_notes_box)
 
+        # ── RIGHT PANEL ─────────────────────────────────────────────────────
         trial_box = tk.Frame(content)
         trial_box.pack(side="left", fill="both", expand=True)
+
+        tracker_frame = tk.Frame(trial_box)
+        tracker_frame.pack(fill="x", pady=(0, 4))
+        tk.Label(tracker_frame, text="ITI Total:").pack(side="left")
+        tk.Label(tracker_frame, textvariable=self.iti_total_var).pack(side="left", padx=(2, 16))
+        tk.Label(tracker_frame, text="Trial Total:").pack(side="left")
+        tk.Label(tracker_frame, textvariable=self.trial_total_length_var).pack(side="left", padx=(2, 16))
+        tk.Label(tracker_frame, text="Experiment Length:").pack(side="left")
+        tk.Label(tracker_frame, textvariable=self.experiment_length_var).pack(side="left", padx=(2, 0))
 
         trial_header = tk.Frame(trial_box)
         trial_header.pack(fill="x")
@@ -499,6 +514,7 @@ class FearConditioningGUI:
         trial_scrollbar.pack(side="right", fill="y")
         self.table.bind("<Double-1>", self.edit_cell)
         self.reset_trial_sequence(update_status=False)
+        self.root.after(500, self._schedule_tracker_update)
 
         run_btns = tk.Frame(self.root)
         run_btns.pack(pady=(6, 2))
@@ -882,6 +898,55 @@ class FearConditioningGUI:
 
         done.wait(1)
         return result["note"]
+
+    def _compute_trial_duration(self, values):
+        try:
+            tone_dur = float(values[1])
+            shock_start = str(values[2]).strip()
+            shock_dur_str = str(values[3]).strip()
+            if shock_start and shock_start.upper() not in ("NA", ""):
+                ss = float(shock_start)
+                sd = float(shock_dur_str) if shock_dur_str and shock_dur_str.upper() not in ("NA", "") else 0
+                return max(tone_dur, ss + sd)
+            return tone_dur
+        except (ValueError, IndexError, TypeError):
+            return 0.0
+
+    def _update_time_trackers(self, *_):
+        try:
+            iti_min = float(self.iti_min_var.get())
+            iti_max = float(self.iti_max_var.get())
+            avg_iti = (iti_min + iti_max) / 2
+        except ValueError:
+            self.iti_total_var.set("--")
+            self.trial_total_length_var.set("--")
+            self.experiment_length_var.set("--")
+            return
+
+        rows = self.table.get_children() if hasattr(self, "table") else []
+        n_trials = len(rows)
+        iti_total = avg_iti * max(0, n_trials - 1)
+
+        trial_total = sum(
+            self._compute_trial_duration(self.table.item(row)["values"]) for row in rows
+        )
+
+        try:
+            start_delay = float(self.start_delay_var.get() or "0")
+        except ValueError:
+            start_delay = 0.0
+
+        exp_length = start_delay + trial_total + iti_total
+        self.iti_total_var.set(self.format_watch_time(iti_total))
+        self.trial_total_length_var.set(self.format_watch_time(trial_total))
+        self.experiment_length_var.set(self.format_watch_time(exp_length))
+
+    def _schedule_tracker_update(self):
+        self._update_time_trackers()
+        try:
+            self.root.after(500, self._schedule_tracker_update)
+        except tk.TclError:
+            pass
 
     def format_watch_time(self, seconds):
         seconds = max(0, float(seconds or 0))
