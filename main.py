@@ -566,8 +566,14 @@ class ExperimentController:
             self.append_event("TRIAL_NOTE", trial_number, tone, note)
 
     def run_iti(self, trial_number, total_trials, tone):
-        iti = random.uniform(float(self.protocol_iti_min), float(self.protocol_iti_max))
-        self.gui.status.set(f"ITI {iti:.1f}s")
+        if trial_number >= total_trials:
+            return
+        iti_idx = trial_number - 1
+        if iti_idx < len(self.precomputed_itis):
+            iti = self.precomputed_itis[iti_idx]
+        else:
+            iti = (float(self.protocol_iti_min) + float(self.protocol_iti_max)) / 2
+        self.gui.set_status(f"ITI {iti:.1f}s")
         iti_start_event = self.append_event(
             "ITI_START", trial_number, tone, f"seconds={iti:.6f}"
         )
