@@ -114,8 +114,27 @@ class ExperimentController:
     def start(self):
         if self.running:
             return
+
+        try:
+            run_config = {
+                "trials": self.gui.get_trials(),
+                "protocol_snapshot": self.gui.get_protocol_rows(),
+                "iti_min": self.gui.iti_min_var.get(),
+                "iti_max": self.gui.iti_max_var.get(),
+                "start_delay": self.gui.start_delay_var.get().strip() or "0",
+                "observer": self.gui.observer_var.get().strip(),
+                "demonstrator": self.gui.demonstrator_var.get().strip(),
+            }
+            float(run_config["iti_min"])
+            float(run_config["iti_max"])
+            float(run_config["start_delay"])
+        except ValueError as exc:
+            self.gui.set_status(f"Check experiment settings: {exc}")
+            return
+
+        self.running = True
         self.gui.set_run_controls(True)
-        threading.Thread(target=self.run_experiment, daemon=True).start()
+        threading.Thread(target=self.run_experiment, args=(run_config,), daemon=True).start()
 
     def stop(self):
         self.stop_event.set()
@@ -125,17 +144,11 @@ class ExperimentController:
 
     def pause(self):
         self.pause_event.set()
-        try:
-            self.gui.root.after(0, lambda: self.gui.set_paused(True))
-        except Exception:
-            pass
+        self.gui.set_paused(True)
 
     def resume(self):
         self.pause_event.clear()
-        try:
-            self.gui.root.after(0, lambda: self.gui.set_paused(False))
-        except Exception:
-            pass
+        self.gui.set_paused(False)
 
     def _handle_pause(self, trial="", tone=""):
         """Call inside a loop when pause_event is set. Returns pause duration in seconds."""
@@ -195,7 +208,7 @@ class ExperimentController:
         with self.export_lock:
             self.session_notes = note
             self.write_auto_export_files()
-        self.gui.status.set("Experiment notes saved and reset")
+        self.gui.set_status("Experiment notes saved and reset")
 
     def write_auto_export_files(self):
         self.export_manager.write_auto_export_files(
@@ -232,26 +245,25 @@ class ExperimentController:
             self.last_protocol_demonstrator,
         )
 
-    def run_experiment(self):
-        self.running = True
+    def run_experiment(self, run_config):
         self.stop_event.clear()
         self.pause_event.clear()
         self.skip_event.clear()
         self.experiment_events = []
         self.trial_summaries = []
         self.session_notes = ""
-        self.protocol_snapshot = self.gui.get_protocol_rows()
-        self.protocol_iti_min = self.gui.iti_min_var.get()
-        self.protocol_iti_max = self.gui.iti_max_var.get()
-        self.protocol_start_delay = self.gui.start_delay_var.get().strip() or "0"
-        self.protocol_observer = self.gui.observer_var.get().strip()
-        self.protocol_demonstrator = self.gui.demonstrator_var.get().strip()
+        self.protocol_snapshot = run_config["protocol_snapshot"]
+        self.protocol_iti_min = run_config["iti_min"]
+        self.protocol_iti_max = run_config["iti_max"]
+        self.protocol_start_delay = run_config["start_delay"]
+        self.protocol_observer = run_config["observer"]
+        self.protocol_demonstrator = run_config["demonstrator"]
 
         try:
-            trials = self.gui.get_trials()
+            trials = run_config["trials"]
             iti_min = float(self.protocol_iti_min)
             iti_max = float(self.protocol_iti_max)
-            start_delay = self.gui.get_start_delay_seconds()
+            start_delay = float(self.protocol_start_delay)
 
             n_trials = len(trials)
             if n_trials > 1:
@@ -282,7 +294,7 @@ class ExperimentController:
 
             if start_delay > 0:
                 self.append_event("START_DELAY", detail=f"seconds={start_delay}")
-                self.gui.status.set(f"Start delay {start_delay:.1f}s")
+                self.gui.set_status(f"Start delay {start_delay:.1f}s")
                 delay_start = time.time()
                 paused_total = 0.0
                 while not self.stop_event.is_set():
@@ -353,14 +365,14 @@ class ExperimentController:
                     self.protocol_demonstrator,
                 )
             self.running = False
-            self.gui.status.set("Idle")
+            self.gui.set_status("Idle")
             self.gui.set_trial_watch(phase="Idle", elapsed=0)
             self.gui.set_run_controls(False)
 
     def run_trial(self, trial_number, total_trials, trial):
         self._last_trial_number = trial_number
         self._last_trial_tone = trial["tone"]
-        self.gui.status.set(f"Trial {trial_number}/{total_trials}")
+        self.gui.set_status(f"Trial {trial_number}/{total_trials}")
 
         start = time.time()
         tone_stop_time = start + trial["tone_duration"]
@@ -555,13 +567,7 @@ class ExperimentController:
             self.append_event("TRIAL_NOTE", trial_number, tone, note)
 
     def run_iti(self, trial_number, total_trials, tone):
-        if trial_number >= total_trials:
-            return
-        iti_idx = trial_number - 1
-        if iti_idx < len(self.precomputed_itis):
-            iti = self.precomputed_itis[iti_idx]
-        else:
-            iti = (float(self.protocol_iti_min) + float(self.protocol_iti_max)) / 2
+        iti = random.uniform(float(self.protocol_iti_min), float(self.protocol_iti_max))
         self.gui.status.set(f"ITI {iti:.1f}s")
         iti_start_event = self.append_event(
             "ITI_START", trial_number, tone, f"seconds={iti:.6f}"
