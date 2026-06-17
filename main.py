@@ -121,8 +121,6 @@ class ExperimentController:
                 "iti_min": self.gui.iti_min_var.get(),
                 "iti_max": self.gui.iti_max_var.get(),
                 "start_delay": self.gui.start_delay_var.get().strip() or "0",
-                "observer": self.gui.observer_var.get().strip(),
-                "demonstrator": self.gui.demonstrator_var.get().strip(),
             }
             float(run_config["iti_min"])
             float(run_config["iti_max"])
@@ -143,11 +141,17 @@ class ExperimentController:
 
     def pause(self):
         self.pause_event.set()
-        self.gui.set_paused(True)
+        try:
+            self.gui.root.after(0, lambda: self.gui.set_paused(True))
+        except Exception:
+            pass
 
     def resume(self):
         self.pause_event.clear()
-        self.gui.set_paused(False)
+        try:
+            self.gui.root.after(0, lambda: self.gui.set_paused(False))
+        except Exception:
+            pass
 
     def _handle_pause(self, trial="", tone=""):
         """Call inside a loop when pause_event is set. Returns pause duration in seconds."""
@@ -207,7 +211,7 @@ class ExperimentController:
         with self.export_lock:
             self.session_notes = note
             self.write_auto_export_files()
-        self.gui.set_status("Experiment notes saved and reset")
+        self.gui.status.set("Experiment notes saved and reset")
 
     def write_auto_export_files(self):
         self.export_manager.write_auto_export_files(
@@ -250,13 +254,10 @@ class ExperimentController:
         self.skip_event.clear()
         self.experiment_events = []
         self.trial_summaries = []
-        self.session_notes = ""
         self.protocol_snapshot = run_config["protocol_snapshot"]
         self.protocol_iti_min = run_config["iti_min"]
         self.protocol_iti_max = run_config["iti_max"]
         self.protocol_start_delay = run_config["start_delay"]
-        self.protocol_observer = run_config["observer"]
-        self.protocol_demonstrator = run_config["demonstrator"]
 
         try:
             trials = run_config["trials"]
@@ -357,8 +358,6 @@ class ExperimentController:
             self.gui.set_run_controls(False)
 
     def run_trial(self, trial_number, total_trials, trial):
-        self._last_trial_number = trial_number
-        self._last_trial_tone = trial["tone"]
         self.gui.set_status(f"Trial {trial_number}/{total_trials}")
 
         start = time.time()
