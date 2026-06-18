@@ -20,7 +20,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 TONE_FILES = {
     "A": os.path.join(SCRIPT_DIR, "WhiteNoise,SR=50k,F=4K-20K.wav"),
-    "B": os.path.join(SCRIPT_DIR, "toneCloud1sMonoFS88200.wav"),
+    "B": os.path.join(SCRIPT_DIR, "linear_sweep_2000to6000Hz.wav"),
     "C": os.path.join(SCRIPT_DIR, "WhiteNoise,SR=50k,F=4K-20K.wav"),
 }
 LOOPING_TONES = set(TONE_FILES)
