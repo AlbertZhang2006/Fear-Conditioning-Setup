@@ -10,7 +10,16 @@ import pandas as pd
 
 EPOCH_THRESHOLD = 1e6  # values above this are treated as absolute Unix timestamps
 TONE_ID_TO_LETTER = {"0": "A", "1": "B", "2": "C"}
-DOT_COLOR_BGR = {"A": (0, 0, 255), "B": (255, 0, 0)}
+
+WHITE = (255, 255, 255)
+PHASE_COLOR_BGR = {
+    "Tone": (0, 165, 255),
+    "Shock": (0, 0, 255),
+    "ITI": (200, 200, 200),
+    "Start delay": (200, 200, 200),
+    "Trial": (0, 165, 255),
+    "Idle": (200, 200, 200),
+}
 
 
 def tokenize(name):
@@ -48,11 +57,11 @@ def load_table(csv_path):
     return df, start_ts
 
 
-def classify_columns(columns):
+def classify_event_columns(columns, keyword):
     identity_cols, onset_cols, offset_cols, duration_cols = [], [], [], []
     for col in columns:
         tokens = set(tokenize(col))
-        if "tone" not in tokens:
+        if keyword not in tokens:
             continue
         if "duration" in tokens:
             duration_cols.append(col)
@@ -63,6 +72,27 @@ def classify_columns(columns):
         else:
             identity_cols.append(col)
     return identity_cols, onset_cols, offset_cols, duration_cols
+
+
+def find_trial_column(columns):
+    for col in columns:
+        tokens = set(tokenize(col))
+        if "trial" in tokens and not ({"tone", "shock", "iti"} & tokens):
+            return col
+    return None
+
+
+def find_iti_columns(columns):
+    start_col, stop_col = None, None
+    for col in columns:
+        if "iti" not in str(col).lower():
+            continue
+        tokens = set(tokenize(col))
+        if tokens & {"start", "on", "onset"}:
+            start_col = col
+        elif tokens & {"stop", "end", "off", "offset"}:
+            stop_col = col
+    return start_col, stop_col
 
 
 def tone_letter(value):
@@ -85,50 +115,157 @@ def to_float(value):
         return None
 
 
-def extract_tone_intervals(csv_path):
+def extract_trial_timeline(csv_path):
     df, start_ts = load_table(csv_path)
-    identity_cols, onset_cols, offset_cols, duration_cols = classify_columns(df.columns)
+    columns = df.columns
 
-    if not identity_cols or not onset_cols or not (offset_cols or duration_cols):
+    tone_identity_cols, tone_onset_cols, tone_offset_cols, tone_duration_cols = classify_event_columns(
+        columns, "tone"
+    )
+    shock_identity_cols, shock_onset_cols, shock_offset_cols, _ = classify_event_columns(columns, "shock")
+    trial_col = find_trial_column(columns)
+    iti_start_col, iti_stop_col = find_iti_columns(columns)
+
+    if not tone_identity_cols or not tone_onset_cols or not (tone_offset_cols or tone_duration_cols):
         raise ValueError(
             "Could not find tone identity/onset/offset columns in this CSV. "
-            f"Columns present: {list(df.columns)}"
+            f"Columns present: {list(columns)}"
         )
 
-    identity_col = identity_cols[0]
-    onset_col = onset_cols[0]
-    offset_col = offset_cols[0] if offset_cols else None
-    duration_col = duration_cols[0] if duration_cols else None
+    tone_identity_col = tone_identity_cols[0]
+    tone_onset_col = tone_onset_cols[0]
+    tone_offset_col = tone_offset_cols[0] if tone_offset_cols else None
+    tone_duration_col = tone_duration_cols[0] if tone_duration_cols else None
+    shock_identity_col = shock_identity_cols[0] if shock_identity_cols else None
+    shock_onset_col = shock_onset_cols[0] if shock_onset_cols else None
+    shock_offset_col = shock_offset_cols[0] if shock_offset_cols else None
 
-    intervals = {"A": [], "B": []}
-    for _, row in df.iterrows():
-        letter = tone_letter(row[identity_col])
-        if letter not in intervals:
+    timeline = []
+    for position, (_, row) in enumerate(df.iterrows()):
+        letter = tone_letter(row[tone_identity_col])
+        if letter is None:
             continue
 
-        onset = to_float(row[onset_col])
-        if onset is None:
+        tone_on = to_float(row[tone_onset_col])
+        if tone_on is None:
             continue
 
-        offset = to_float(row[offset_col]) if offset_col is not None else None
-        if offset is None and duration_col is not None:
-            duration = to_float(row[duration_col])
+        tone_off = to_float(row[tone_offset_col]) if tone_offset_col is not None else None
+        if tone_off is None and tone_duration_col is not None:
+            duration = to_float(row[tone_duration_col])
             if duration is not None:
-                offset = onset + duration
-        if offset is None:
+                tone_off = tone_on + duration
+        if tone_off is None:
             continue
 
-        intervals[letter].append((onset, offset))
+        shock_on = to_float(row[shock_onset_col]) if shock_onset_col is not None else None
+        shock_off = to_float(row[shock_offset_col]) if shock_offset_col is not None else None
+        shock_present = shock_on is not None and shock_off is not None
+        if shock_identity_col is not None and not shock_present:
+            flag = to_float(row[shock_identity_col])
+            shock_present = bool(flag) if flag is not None else shock_present
 
-    all_values = [v for pairs in intervals.values() for pair in pairs for v in pair]
+        iti_start = to_float(row[iti_start_col]) if iti_start_col is not None else None
+        iti_stop = to_float(row[iti_stop_col]) if iti_stop_col is not None else None
+
+        if trial_col is not None:
+            trial_value = to_float(row[trial_col])
+            trial_number = int(trial_value) if trial_value is not None else position + 1
+        else:
+            trial_number = position + 1
+
+        timeline.append(
+            {
+                "trial_number": trial_number,
+                "tone": letter,
+                "tone_on": tone_on,
+                "tone_off": tone_off,
+                "shock_present": shock_present,
+                "shock_on": shock_on,
+                "shock_off": shock_off,
+                "iti_start": iti_start,
+                "iti_stop": iti_stop,
+            }
+        )
+
+    if not timeline:
+        raise ValueError("No trial rows with a tone onset/offset were found in this CSV.")
+
+    timeline.sort(key=lambda item: item["tone_on"])
+
+    all_values = [
+        v
+        for item in timeline
+        for v in (
+            item["tone_on"],
+            item["tone_off"],
+            item["shock_on"],
+            item["shock_off"],
+            item["iti_start"],
+            item["iti_stop"],
+        )
+        if v is not None
+    ]
     if all_values and max(all_values) > EPOCH_THRESHOLD:
         reference = start_ts if start_ts is not None else min(all_values)
-        intervals = {
-            letter: [(on - reference, off - reference) for on, off in pairs]
-            for letter, pairs in intervals.items()
+        for item in timeline:
+            for key in ("tone_on", "tone_off", "shock_on", "shock_off", "iti_start", "iti_stop"):
+                if item[key] is not None:
+                    item[key] -= reference
+
+    return timeline
+
+
+def stage_at(t, timeline):
+    if not timeline or t < timeline[0]["tone_on"]:
+        return {
+            "phase": "Start delay",
+            "trial_number": None,
+            "total_trials": len(timeline),
+            "tone": None,
+            "shock_present": False,
+            "shock_active": False,
+            "shock_off": None,
         }
 
-    return intervals
+    trial = timeline[0]
+    for item in timeline:
+        if t < item["tone_on"]:
+            break
+        trial = item
+
+    shock_active = (
+        trial["shock_on"] is not None
+        and trial["shock_off"] is not None
+        and trial["shock_on"] <= t <= trial["shock_off"]
+    )
+
+    if shock_active:
+        phase = "Shock"
+    elif t <= trial["tone_off"]:
+        phase = "Tone"
+    elif (
+        trial["iti_start"] is not None
+        and trial["iti_stop"] is not None
+        and trial["iti_start"] <= t <= trial["iti_stop"]
+    ):
+        phase = "ITI"
+    elif trial is timeline[-1] and trial["iti_stop"] is None:
+        phase = "Idle"
+    elif trial["iti_stop"] is not None and t > trial["iti_stop"]:
+        phase = "Idle"
+    else:
+        phase = "Trial"
+
+    return {
+        "phase": phase,
+        "trial_number": trial["trial_number"],
+        "total_trials": len(timeline),
+        "tone": trial["tone"],
+        "shock_present": trial["shock_present"],
+        "shock_active": shock_active,
+        "shock_off": trial["shock_off"],
+    }
 
 
 def format_time(seconds):
@@ -141,7 +278,55 @@ def format_time(seconds):
     return f"{minutes:02d}:{secs:06.3f}"
 
 
-def annotate_video(video_path, intervals, progress_callback=None):
+def build_tracker_lines(t, state):
+    phase = state["phase"]
+    lines = [
+        (f"Stopwatch  {format_time(t)}", WHITE),
+        (
+            "Trial -- / --"
+            if state["trial_number"] is None
+            else f"Trial {state['trial_number']} / {state['total_trials']}",
+            WHITE,
+        ),
+        (f"Phase: {phase}", PHASE_COLOR_BGR.get(phase, WHITE)),
+        (f"Tone: {state['tone'] or '--'}", WHITE),
+    ]
+
+    if not state["shock_present"]:
+        lines.append(("Shock: none", WHITE))
+    elif state["shock_active"]:
+        remaining = max(0.0, state["shock_off"] - t)
+        lines.append((f"Shock: ON ({remaining:.1f}s left)", PHASE_COLOR_BGR["Shock"]))
+    else:
+        lines.append(("Shock: armed", WHITE))
+
+    return lines
+
+
+def draw_tracker(frame, lines, width, height):
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = max(0.45, height / 1080 * 0.6)
+    thickness = 2 if font_scale >= 0.7 else 1
+    line_h = int(round(28 * font_scale / 0.6))
+    pad = int(round(12 * font_scale / 0.6))
+
+    text_sizes = [cv2.getTextSize(text, font, font_scale, thickness)[0] for text, _ in lines]
+    box_w = max(w for w, h in text_sizes) + pad * 2
+    box_h = line_h * len(lines) + pad * 2
+
+    x0 = max(0, width - box_w - 10)
+    y0 = 10
+
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x0, y0), (x0 + box_w, y0 + box_h), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
+
+    for i, (text, color) in enumerate(lines):
+        y = y0 + pad + line_h * (i + 1) - int(line_h * 0.25)
+        cv2.putText(frame, text, (x0 + pad, y), font, font_scale, color, thickness, cv2.LINE_AA)
+
+
+def annotate_video(video_path, timeline, progress_callback=None):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise RuntimeError(f"Could not open video: {video_path}")
@@ -159,8 +344,6 @@ def annotate_video(video_path, intervals, progress_callback=None):
         cap.release()
         raise RuntimeError(f"Could not open video writer for: {out_path}")
 
-    dot_radius = max(8, height // 40)
-    center = (width - dot_radius * 3, dot_radius * 3)
     progress_step = max(1, total_frames // 200) if total_frames else 30
 
     frame_idx = 0
@@ -170,22 +353,9 @@ def annotate_video(video_path, intervals, progress_callback=None):
             break
 
         t = frame_idx / fps
-
-        for letter in ("A", "B"):
-            if any(onset <= t <= offset for onset, offset in intervals.get(letter, [])):
-                cv2.circle(frame, center, dot_radius, DOT_COLOR_BGR[letter], -1)
-                break
-
-        cv2.putText(
-            frame,
-            format_time(t),
-            (10, height - 15),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (255, 255, 255),
-            2,
-            cv2.LINE_AA,
-        )
+        state = stage_at(t, timeline)
+        lines = build_tracker_lines(t, state)
+        draw_tracker(frame, lines, width, height)
 
         writer.write(frame)
         frame_idx += 1
@@ -266,17 +436,14 @@ class AnnotateVideoGUI:
 
     def _run(self, video, csv_file):
         try:
-            intervals = extract_tone_intervals(csv_file)
-            self._set_status(
-                f"Found {len(intervals['A'])} tone A and {len(intervals['B'])} tone B event(s). "
-                "Processing video..."
-            )
+            timeline = extract_trial_timeline(csv_file)
+            self._set_status(f"Loaded {len(timeline)} trial(s). Processing video...")
 
             def on_progress(frame_idx, total_frames):
                 pct = (frame_idx / total_frames) * 100 if total_frames else 0
                 self.root.after(0, self._update_progress, pct, frame_idx, total_frames)
 
-            out_path = annotate_video(video, intervals, progress_callback=on_progress)
+            out_path = annotate_video(video, timeline, progress_callback=on_progress)
             self._set_status(f"Done. Saved annotated video to:\n{out_path}")
         except Exception as exc:
             self._set_status(f"Error: {exc}")
