@@ -1,0 +1,8 @@
+# Experiment outputs — never track or touch these. They live only on disk,
+# possibly synced in from other devices (e.g. the camera machine). Git must
+# never add, modify, or delete them.
+*.csv
+*.mp4
+*.avi
+*.mov
+*.mkv
