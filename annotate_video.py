@@ -439,6 +439,7 @@ class AnnotateVideoGUI:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Tone Annotation Tool")
+        self.root.minsize(900, 220)
         self.video_path = tk.StringVar()
         self.csv_path = tk.StringVar(value="No CSV selected")
         self.video_path.set("No video selected")
@@ -448,19 +449,32 @@ class AnnotateVideoGUI:
     def _build(self):
         frame = tk.Frame(self.root, padx=12, pady=12)
         frame.pack(fill="both", expand=True)
+        frame.columnconfigure(1, weight=1)
 
         tk.Button(frame, text="Select Video (.mp4)", command=self.select_video).grid(
             row=0, column=0, sticky="w", pady=4
         )
-        tk.Label(frame, textvariable=self.video_path, anchor="w", width=50).grid(
-            row=0, column=1, sticky="w"
+        tk.Label(
+            frame,
+            textvariable=self.video_path,
+            anchor="w",
+            justify="left",
+            wraplength=720,
+        ).grid(
+            row=0, column=1, sticky="ew", padx=(8, 0)
         )
 
         tk.Button(frame, text="Select CSV", command=self.select_csv).grid(
             row=1, column=0, sticky="w", pady=4
         )
-        tk.Label(frame, textvariable=self.csv_path, anchor="w", width=50).grid(
-            row=1, column=1, sticky="w"
+        tk.Label(
+            frame,
+            textvariable=self.csv_path,
+            anchor="w",
+            justify="left",
+            wraplength=720,
+        ).grid(
+            row=1, column=1, sticky="ew", padx=(8, 0)
         )
 
         self.run_btn = tk.Button(frame, text="Process Video", command=self.start_processing)
