@@ -393,6 +393,21 @@ def draw_tracker(frame, lines, width, height):
         cv2.putText(frame, text, (x0 + pad, y), font, font_scale, color, thickness, cv2.LINE_AA)
 
 
+def annotated_output_path(video_path):
+    base, ext = os.path.splitext(video_path)
+    ext = ext or ".mp4"
+    candidate = f"{base}_annotated{ext}"
+    if not os.path.exists(candidate):
+        return candidate
+
+    idx = 2
+    while True:
+        candidate = f"{base}_annotated_{idx}{ext}"
+        if not os.path.exists(candidate):
+            return candidate
+        idx += 1
+
+
 def annotate_video(video_path, timeline, progress_callback=None):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -403,13 +418,16 @@ def annotate_video(video_path, timeline, progress_callback=None):
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    base, ext = os.path.splitext(video_path)
-    out_path = f"{base}_annotated{ext or '.mp4'}"
+    out_path = annotated_output_path(video_path)
 
     writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
     if not writer.isOpened():
         cap.release()
-        raise RuntimeError(f"Could not open video writer for: {out_path}")
+        raise RuntimeError(
+            "Could not create the annotated video file:\n"
+            f"{out_path}\n\n"
+            "Close any video player or file preview using that folder/file and try again."
+        )
 
     progress_step = max(1, total_frames // 200) if total_frames else 30
 
