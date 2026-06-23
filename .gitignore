@@ -6,3 +6,9 @@
 *.avi
 *.mov
 *.mkv
+
+# Ignore all python cache directories
+**/__pycache__/
+
+# Ignore all compiled python files
+*.pyc
