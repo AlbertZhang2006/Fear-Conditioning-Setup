@@ -462,6 +462,7 @@ class AnnotateVideoGUI:
         self.csv_path = tk.StringVar(value="No CSV selected")
         self.video_path.set("No video selected")
         self.status = tk.StringVar(value="Select a video and a CSV file to begin.")
+        self.annotated_video_path = None
         self._build()
 
     def _build(self):
@@ -501,6 +502,20 @@ class AnnotateVideoGUI:
         self.progress = ttk.Progressbar(frame, orient="horizontal", mode="determinate", length=380)
         self.progress.grid(row=3, column=0, columnspan=2, pady=(0, 6))
 
+        self.open_btn = tk.Button(
+            frame,
+            text="Open Annotated Video",
+            command=self.open_annotated_video,
+            state="disabled",
+            bg="#2f8f5b",
+            fg="white",
+            activebackground="#256f47",
+            activeforeground="white",
+            relief="raised",
+            padx=12,
+            pady=4,
+        )
+
         tk.Label(
             frame, textvariable=self.status, anchor="w", justify="left", wraplength=440
         ).grid(row=4, column=0, columnspan=2, sticky="w")
@@ -527,8 +542,12 @@ class AnnotateVideoGUI:
             return
 
         self.run_btn.config(state="disabled")
+        self.annotated_video_path = None
+        self.open_btn.grid_remove()
+        self.open_btn.config(state="disabled")
         self.progress.config(mode="determinate")
         self.progress["value"] = 0
+        self.progress.grid()
         self.status.set("Reading CSV...")
 
         threading.Thread(target=self._run, args=(video, csv_file), daemon=True).start()
@@ -543,6 +562,8 @@ class AnnotateVideoGUI:
                 self.root.after(0, self._update_progress, pct, frame_idx, total_frames)
 
             out_path = annotate_video(video, timeline, progress_callback=on_progress)
+            self.annotated_video_path = out_path
+            self.root.after(0, self._show_open_button)
             self._set_status(f"Done. Saved annotated video to:\n{out_path}")
         except Exception as exc:
             self._set_status(f"Error: {exc}")
@@ -559,6 +580,24 @@ class AnnotateVideoGUI:
 
     def _set_status(self, text):
         self.root.after(0, lambda: self.status.set(text))
+
+    def _show_open_button(self):
+        self.progress.grid_remove()
+        self.open_btn.config(state="normal")
+        self.open_btn.grid(row=3, column=0, columnspan=2, pady=(0, 8))
+
+    def open_annotated_video(self):
+        if not self.annotated_video_path or not os.path.isfile(self.annotated_video_path):
+            messagebox.showwarning(
+                "Annotated video missing",
+                "The annotated video file could not be found.",
+            )
+            return
+
+        try:
+            os.startfile(self.annotated_video_path)
+        except OSError as exc:
+            messagebox.showerror("Could not open video", str(exc))
 
     def run(self):
         self.root.mainloop()
