@@ -10,6 +10,8 @@ import pandas as pd
 
 EPOCH_THRESHOLD = 1e6  # values above this are treated as absolute Unix timestamps
 TONE_ID_TO_LETTER = {"0": "A", "1": "B", "2": "C"}
+TRIAL_TABLE_SUFFIX = "_Trial Data Table.csv"
+SUMMARY_TABLE_SUFFIX = "_Experiment Summary.csv"
 
 WHITE = (255, 255, 255)
 PHASE_COLOR_BGR = {
@@ -45,16 +47,81 @@ def find_start_timestamp(rows, header_idx):
     return None
 
 
+def find_metadata_float(rows, key):
+    key = key.strip().lower()
+    for row in rows:
+        if len(row) >= 2 and str(row[0]).strip().lower() == key:
+            return to_float(row[1])
+    return None
+
+
+def find_event_timestamp(rows, event_name):
+    event_name = event_name.strip().upper()
+    timestamp_idx = None
+    event_idx = None
+
+    for row in rows:
+        normalized = [str(c).strip().lower() for c in row]
+        if "timestamp" in normalized and "event" in normalized:
+            timestamp_idx = normalized.index("timestamp")
+            event_idx = normalized.index("event")
+            continue
+
+        if timestamp_idx is None or event_idx is None:
+            continue
+        if len(row) <= max(timestamp_idx, event_idx):
+            continue
+        if str(row[event_idx]).strip().upper() == event_name:
+            return to_float(row[timestamp_idx])
+
+    return None
+
+
+def paired_experiment_summary_path(csv_path):
+    folder = os.path.dirname(csv_path)
+    filename = os.path.basename(csv_path)
+    if filename.endswith(TRIAL_TABLE_SUFFIX):
+        paired = filename[: -len(TRIAL_TABLE_SUFFIX)] + SUMMARY_TABLE_SUFFIX
+        return os.path.join(folder, paired)
+    return None
+
+
+def load_paired_experiment_summary(csv_path):
+    summary_path = paired_experiment_summary_path(csv_path)
+    if not summary_path or not os.path.isfile(summary_path):
+        return []
+
+    with open(summary_path, newline="", encoding="utf-8-sig") as f:
+        return list(csv.reader(f))
+
+
+def find_video_start_timestamp(csv_path, rows, header_idx, experiment_start_ts):
+    summary_rows = load_paired_experiment_summary(csv_path)
+
+    camera_on_ts = find_event_timestamp(summary_rows, "CAMERA_ON")
+    if camera_on_ts is not None:
+        return camera_on_ts
+
+    start_delay = find_metadata_float(summary_rows, "START_DELAY_SECONDS")
+    if start_delay is None:
+        start_delay = find_metadata_float(rows[:header_idx], "START_DELAY_SECONDS")
+    if experiment_start_ts is not None and start_delay is not None:
+        return experiment_start_ts - start_delay
+
+    return experiment_start_ts
+
+
 def load_table(csv_path):
     with open(csv_path, newline="", encoding="utf-8-sig") as f:
         raw_rows = list(csv.reader(f))
 
     header_idx = find_header_row(raw_rows)
     start_ts = find_start_timestamp(raw_rows, header_idx)
+    video_start_ts = find_video_start_timestamp(csv_path, raw_rows, header_idx, start_ts)
 
     df = pd.read_csv(csv_path, skiprows=header_idx, encoding="utf-8-sig")
     df.columns = [str(c).strip() for c in df.columns]
-    return df, start_ts
+    return df, video_start_ts
 
 
 def classify_event_columns(columns, keyword):
