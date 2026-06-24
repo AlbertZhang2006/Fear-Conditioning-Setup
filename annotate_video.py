@@ -393,22 +393,39 @@ def draw_tracker(frame, lines, width, height):
         cv2.putText(frame, text, (x0 + pad, y), font, font_scale, color, thickness, cv2.LINE_AA)
 
 
-def annotated_output_path(video_path):
-    base, ext = os.path.splitext(video_path)
-    ext = ext or ".mp4"
-    candidate = f"{base}_annotated{ext}"
+def annotated_output_base(video_path, csv_path=None):
+    """Base name (no extension) for the annotated video: the original video's
+    own name, plus its paired experiment's date-time identifier when a CSV is
+    given, so the file still names the source video but is also easy to
+    match back to the experiment."""
+    video_base = os.path.splitext(os.path.basename(video_path))[0]
+    if csv_path:
+        csv_name = os.path.basename(csv_path)
+        for suffix in (TRIAL_TABLE_SUFFIX, SUMMARY_TABLE_SUFFIX):
+            if csv_name.endswith(suffix):
+                experiment_base = csv_name[: -len(suffix)]
+                return f"{video_base}-{experiment_base}"
+    return video_base
+
+
+def annotated_output_path(video_path, csv_path=None):
+    folder = os.path.dirname(video_path)
+    ext = os.path.splitext(video_path)[1] or ".mp4"
+    base = annotated_output_base(video_path, csv_path)
+
+    candidate = os.path.join(folder, f"{base}-annotated{ext}")
     if not os.path.exists(candidate):
         return candidate
 
     idx = 2
     while True:
-        candidate = f"{base}_annotated_{idx}{ext}"
+        candidate = os.path.join(folder, f"{base}-annotated-{idx}{ext}")
         if not os.path.exists(candidate):
             return candidate
         idx += 1
 
 
-def annotate_video(video_path, timeline, progress_callback=None):
+def annotate_video(video_path, timeline, progress_callback=None, csv_path=None):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise RuntimeError(f"Could not open video: {video_path}")
@@ -418,7 +435,7 @@ def annotate_video(video_path, timeline, progress_callback=None):
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    out_path = annotated_output_path(video_path)
+    out_path = annotated_output_path(video_path, csv_path)
 
     writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
     if not writer.isOpened():
@@ -561,7 +578,7 @@ class AnnotateVideoGUI:
                 pct = (frame_idx / total_frames) * 100 if total_frames else 0
                 self.root.after(0, self._update_progress, pct, frame_idx, total_frames)
 
-            out_path = annotate_video(video, timeline, progress_callback=on_progress)
+            out_path = annotate_video(video, timeline, progress_callback=on_progress, csv_path=csv_file)
             self.annotated_video_path = out_path
             self.root.after(0, self._show_open_button)
             self._set_status(f"Done. Saved annotated video to:\n{out_path}")

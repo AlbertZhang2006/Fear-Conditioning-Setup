@@ -35,6 +35,26 @@ def export_file_names(base_file):
     )
 
 
+def export_timestamp_base(dt=None):
+    """e.g. 20260624-1339 -- date, then 24-hour hour+minute (military time)."""
+    return (dt or datetime.now()).strftime("%Y%m%d-%H%M")
+
+
+def unique_export_base_file(folder, dt=None):
+    """Base CSV path (folder/<timestamp>.csv) whose derived export file names
+    don't already exist, suffixing -2, -3, ... on same-minute collisions."""
+    base = export_timestamp_base(dt)
+    candidate = base
+    idx = 2
+    while True:
+        base_file = os.path.join(folder, f"{candidate}.csv")
+        summary_file, trial_file = export_file_names(base_file)
+        if not os.path.exists(summary_file) and not os.path.exists(trial_file):
+            return base_file
+        candidate = f"{base}-{idx}"
+        idx += 1
+
+
 class ExportManager:
     def __init__(self, status_var, is_running):
         self.status_var = status_var
@@ -84,10 +104,7 @@ class ExportManager:
             self.auto_export_active = False
             return
 
-        base_file = os.path.join(
-            self.auto_export_folder,
-            f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        )
+        base_file = unique_export_base_file(self.auto_export_folder)
         self.auto_experiment_summary_file, self.auto_trial_summary_file = export_file_names(
             base_file
         )
@@ -189,7 +206,7 @@ class ExportManager:
         file = filedialog.asksaveasfilename(
             defaultextension=".csv",
             filetypes=[("CSV", "*.csv")],
-            initialfile=f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            initialfile=f"{export_timestamp_base()}.csv",
             title="Choose Export Base Name",
         )
         if not file:
