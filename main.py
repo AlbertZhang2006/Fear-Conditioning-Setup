@@ -122,6 +122,8 @@ class ExperimentController:
                 "iti_min": self.gui.iti_min_var.get(),
                 "iti_max": self.gui.iti_max_var.get(),
                 "start_delay": self.gui.start_delay_var.get().strip() or "0",
+                "observer": self.gui.observer_var.get().strip(),
+                "demonstrator": self.gui.demonstrator_var.get().strip(),
             }
             float(run_config["iti_min"])
             float(run_config["iti_max"])
@@ -196,6 +198,7 @@ class ExperimentController:
                     "shock": 1 if has_shock else 0,
                     "shock_on_timestamp": "" if has_shock else "NA",
                     "shock_off_timestamp": "" if has_shock else "NA",
+                    "trial_note": "",
                 }
             )
             self.write_auto_export_files()
@@ -205,6 +208,20 @@ class ExperimentController:
             for summary in self.trial_summaries:
                 if summary["trial"] == trial:
                     summary.update(updates)
+                    break
+            self.write_auto_export_files()
+
+    def update_trial_summary_note(self, trial, note):
+        if trial in ("", None):
+            return
+
+        with self.export_lock:
+            for summary in self.trial_summaries:
+                if summary["trial"] == trial:
+                    existing_note = summary.get("trial_note", "")
+                    summary["trial_note"] = (
+                        f"{existing_note}\n{note}" if existing_note else note
+                    )
                     break
             self.write_auto_export_files()
 
@@ -259,6 +276,10 @@ class ExperimentController:
         self.protocol_iti_min = run_config["iti_min"]
         self.protocol_iti_max = run_config["iti_max"]
         self.protocol_start_delay = run_config["start_delay"]
+        self.protocol_observer = run_config["observer"]
+        self.protocol_demonstrator = run_config["demonstrator"]
+        self._last_trial_number = ""
+        self._last_trial_tone = ""
 
         try:
             trials = run_config["trials"]
@@ -341,7 +362,11 @@ class ExperimentController:
             self.append_event("CAMERA_OFF")
             final_trial_note = self.gui.pop_trial_note()
             if final_trial_note:
-                self.append_event("TRIAL_NOTE", self._last_trial_number, self._last_trial_tone, final_trial_note)
+                self.record_trial_note(
+                    self._last_trial_number,
+                    self._last_trial_tone,
+                    final_trial_note,
+                )
             final_notes = self.gui.pop_experiment_note()
             with self.export_lock:
                 self.session_notes = final_notes
@@ -372,6 +397,8 @@ class ExperimentController:
 
     def run_trial(self, trial_number, total_trials, trial):
         self.gui.set_status(f"Trial {trial_number}/{total_trials}")
+        self._last_trial_number = trial_number
+        self._last_trial_tone = trial["tone"]
 
         start = time.time()
         tone_stop_time = start + trial["tone_duration"]
@@ -563,7 +590,11 @@ class ExperimentController:
     def save_trial_note(self, trial_number, tone):
         note = self.gui.pop_trial_note()
         if note:
-            self.append_event("TRIAL_NOTE", trial_number, tone, note)
+            self.record_trial_note(trial_number, tone, note)
+
+    def record_trial_note(self, trial_number, tone, note):
+        self.update_trial_summary_note(trial_number, note)
+        self.append_event("TRIAL_NOTE", trial_number, tone, note)
 
     def run_iti(self, trial_number, total_trials, tone):
         if trial_number >= total_trials:
