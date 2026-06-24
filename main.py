@@ -227,9 +227,16 @@ class ExperimentController:
 
     def save_and_reset_experiment_notes(self, note):
         with self.export_lock:
-            self.session_notes = note
+            self.session_notes = self.combine_notes(self.session_notes, note)
             self.write_auto_export_files()
         self.gui.status.set("Experiment notes saved and reset")
+
+    def combine_notes(self, existing, new_note):
+        existing = (existing or "").strip()
+        new_note = (new_note or "").strip()
+        if existing and new_note:
+            return f"{existing}\n{new_note}"
+        return existing or new_note
 
     def write_auto_export_files(self):
         self.export_manager.write_auto_export_files(
@@ -369,14 +376,14 @@ class ExperimentController:
                 )
             final_notes = self.gui.pop_experiment_note()
             with self.export_lock:
-                self.session_notes = final_notes
+                self.session_notes = self.combine_notes(self.session_notes, final_notes)
                 self.last_experiment_events = list(self.experiment_events)
                 self.last_trial_summaries = list(self.trial_summaries)
                 self.last_protocol_snapshot = list(self.protocol_snapshot)
                 self.last_protocol_iti_min = self.protocol_iti_min
                 self.last_protocol_iti_max = self.protocol_iti_max
                 self.last_protocol_start_delay = self.protocol_start_delay
-                self.last_session_notes = final_notes
+                self.last_session_notes = self.session_notes
                 self.last_protocol_observer = self.protocol_observer
                 self.last_protocol_demonstrator = self.protocol_demonstrator
                 self.export_manager.stop_auto_export_file(
@@ -386,7 +393,7 @@ class ExperimentController:
                     self.protocol_iti_min,
                     self.protocol_iti_max,
                     self.protocol_start_delay,
-                    final_notes,
+                    self.session_notes,
                     self.protocol_observer,
                     self.protocol_demonstrator,
                 )

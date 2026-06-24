@@ -284,21 +284,6 @@ class ExportManager:
             for i, row in enumerate(protocol_rows, start=1):
                 proto_section.append([i] + list(row))
 
-            trial_note_section = [
-                ["TrialNotes"],
-                ["Trial", "Tone", "Note"],
-            ]
-            for summary in summaries:
-                note = summary.get("trial_note", "")
-                if note:
-                    trial_note_section.append(
-                        [summary.get("trial", ""), summary.get("tone", ""), note]
-                    )
-
-            right_section = proto_section
-            if len(trial_note_section) > 2:
-                right_section = proto_section + [[]] + trial_note_section
-
             # EventLog starts 3 rows below the ExperimentNotes label (index 7 + 3 = 10)
             PROTO_COL = 7   # column H (0-indexed)
             EVENT_LOG_ROW = 10  # row index where EventLog label appears
@@ -306,7 +291,7 @@ class ExportManager:
             event_data_start = EVENT_LOG_ROW + 2  # label row + header row
 
             total_rows = max(
-                len(right_section),
+                len(proto_section),
                 event_data_start + len(events),
             )
             NUM_COLS = PROTO_COL + 6  # enough for both sides
@@ -316,7 +301,7 @@ class ExportManager:
                 for c, val in enumerate(row_data):
                     grid[r][c] = val
 
-            for r, row_data in enumerate(right_section):
+            for r, row_data in enumerate(proto_section):
                 for c, val in enumerate(row_data):
                     grid[r][PROTO_COL + c] = val
 
