@@ -394,6 +394,8 @@ class FearConditioningGUI:
         self._trial_watch_pending = False
         self._trial_watch_latest = None
         self._running_trial_number = None
+        self.observer_var.trace_add("write", self._on_protocol_id_change)
+        self.demonstrator_var.trace_add("write", self._on_protocol_id_change)
 
         self._build()
         self.root.after(50, self._drain_ui_queue)
@@ -411,6 +413,12 @@ class FearConditioningGUI:
                 self.pause_btn.config(state="normal" if experiment_running else "disabled"),
                 self.continue_btn.config(state="disabled"),
             )
+        )
+
+    def _on_protocol_id_change(self, *_):
+        self.controller.update_protocol_ids(
+            self.observer_var.get(),
+            self.demonstrator_var.get(),
         )
 
     def set_status(self, text):

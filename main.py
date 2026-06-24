@@ -132,8 +132,7 @@ class ExperimentController:
             self.gui.set_status(f"Check experiment settings: {exc}")
             return
 
-        self.protocol_observer = run_config["observer"]
-        self.protocol_demonstrator = run_config["demonstrator"]
+        self.update_protocol_ids(run_config["observer"], run_config["demonstrator"])
         self.running = True
         self.gui.set_run_controls(True)
         threading.Thread(target=self.run_experiment, args=(run_config,), daemon=True).start()
@@ -253,6 +252,13 @@ class ExperimentController:
             self.protocol_demonstrator,
         )
 
+    def update_protocol_ids(self, observer, demonstrator):
+        with self.export_lock:
+            self.protocol_observer = (observer or "").strip()
+            self.protocol_demonstrator = (demonstrator or "").strip()
+            if self.export_manager:
+                self.write_auto_export_files()
+
     def export_data_manually(self):
         self.export_manager.export_data_manually(
             self.protocol_snapshot,
@@ -285,8 +291,6 @@ class ExperimentController:
         self.protocol_iti_min = run_config["iti_min"]
         self.protocol_iti_max = run_config["iti_max"]
         self.protocol_start_delay = run_config["start_delay"]
-        self.protocol_observer = run_config["observer"]
-        self.protocol_demonstrator = run_config["demonstrator"]
         self._last_trial_number = ""
         self._last_trial_tone = ""
 
