@@ -132,6 +132,8 @@ class ExperimentController:
             self.gui.set_status(f"Check experiment settings: {exc}")
             return
 
+        self.protocol_observer = run_config["observer"]
+        self.protocol_demonstrator = run_config["demonstrator"]
         self.running = True
         self.gui.set_run_controls(True)
         threading.Thread(target=self.run_experiment, args=(run_config,), daemon=True).start()
